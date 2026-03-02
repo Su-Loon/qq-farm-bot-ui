@@ -1,12 +1,13 @@
 const { Buffer } = require('node:buffer');
 /**
  * 商城自动购买
- * 当前实现：自动购买有机化肥（item_id=1012）
+ * 根据施肥策略自动调整购买类型
  */
 
 const { sendMsgAsync, getUserState } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { toNum, log, sleep } = require('../utils/utils');
+const { getAutomation, getAccountConfigSnapshot } = require('../models/store');
 
 const ORGANIC_FERTILIZER_MALL_GOODS_ID = 1002;
 const BUY_COOLDOWN_MS = 10 * 60 * 1000;
@@ -101,23 +102,31 @@ async function autoBuyOrganicFertilizerViaMall() {
     if (goodsId <= 0) return 0;
     const singlePrice = parseMallPriceValue(goods.price);
     let ticket = Math.max(0, toNum((getUserState() || {}).ticket));
+    
+    // 获取保留点券的配置
+    const config = getAccountConfigSnapshot('');
+    const reserveTickets = Math.max(0, Number(config.fertilizerBuyReserveTickets) || 0);
+    
+    // 计算可用的点券（减去保留的点券）
+    const availableTicket = Math.max(0, ticket - reserveTickets);
+    
     let totalBought = 0;
     let perRound = BUY_PER_ROUND;
-    if (singlePrice > 0 && ticket > 0) {
-        perRound = Math.max(1, Math.min(BUY_PER_ROUND, Math.floor(ticket / singlePrice) || 1));
+    if (singlePrice > 0 && availableTicket > 0) {
+        perRound = Math.max(1, Math.min(BUY_PER_ROUND, Math.floor(availableTicket / singlePrice) || 1));
     }
 
     for (let i = 0; i < MAX_ROUNDS; i++) {
-        if (singlePrice > 0 && ticket > 0 && ticket < singlePrice) {
+        if (singlePrice > 0 && availableTicket > 0 && availableTicket < singlePrice) {
             buyPausedNoGoldDateKey = getDateKey();
             break;
         }
         try {
             await purchaseMallGoods(goodsId, perRound);
             totalBought += perRound;
-            if (singlePrice > 0 && ticket > 0) {
-                ticket = Math.max(0, ticket - (singlePrice * perRound));
-                if (ticket < singlePrice) break;
+            if (singlePrice > 0 && availableTicket > 0) {
+                const currentAvailable = Math.max(0, ticket - reserveTickets - (singlePrice * totalBought));
+                if (currentAvailable < singlePrice) break;
             }
             await sleep(120);
         } catch (e) {
@@ -135,28 +144,44 @@ async function autoBuyOrganicFertilizerViaMall() {
     return totalBought;
 }
 
-async function autoBuyOrganicFertilizer(force = false) {
+async function autoBuyFertilizer(force = false) {
     const now = Date.now();
     if (!force && now - lastBuyAt < BUY_COOLDOWN_MS) return 0;
     lastBuyAt = now;
 
     try {
-        // 使用 MallService 购买链路（点券）
-        const totalBought = await autoBuyOrganicFertilizerViaMall();
-        if (totalBought > 0) {
-            buyDoneDateKey = getDateKey();
-            buyLastSuccessAt = Date.now();
-            log('商城', `自动购买有机化肥 x${totalBought}`, {
-                module: 'warehouse',
-                event: 'fertilizer_buy',
-                result: 'ok',
-                count: totalBought,
-            });
+        const fertilizerConfig = getAutomation().fertilizer || 'both';
+        let totalBought = 0;
+
+        if (fertilizerConfig === 'organic' || fertilizerConfig === 'both') {
+            // 购买有机化肥
+            const organicBought = await autoBuyOrganicFertilizerViaMall();
+            totalBought += organicBought;
+            if (organicBought > 0) {
+                buyDoneDateKey = getDateKey();
+                buyLastSuccessAt = Date.now();
+                log('商城', `自动购买有机化肥 x${organicBought}`, {
+                    module: 'warehouse',
+                    event: 'fertilizer_buy',
+                    result: 'ok',
+                    type: 'organic',
+                    count: organicBought,
+                });
+            }
         }
+
+        // 这里可以添加购买普通化肥的逻辑
+        // 目前商城只实现了有机化肥的购买，普通化肥可能需要通过其他方式购买
+
         return totalBought;
     } catch {
         return 0;
     }
+}
+
+// 保持向后兼容
+async function autoBuyOrganicFertilizer(force = false) {
+    return autoBuyFertilizer(force);
 }
 
 function isDoneTodayByKey(key) {
@@ -228,6 +253,7 @@ async function buyFreeGifts(force = false) {
 }
 
 module.exports = {
+    autoBuyFertilizer,
     autoBuyOrganicFertilizer,
     buyFreeGifts,
     getFertilizerBuyDailyState: () => ({

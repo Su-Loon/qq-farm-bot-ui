@@ -63,6 +63,7 @@ const DEFAULT_ACCOUNT_CONFIG = {
         end: '07:00',
     },
     friendBlacklist: [],
+    fertilizerBuyReserveTickets: 0, // 购买化肥时保留的点券数量
 };
 const ALLOWED_AUTOMATION_KEYS = new Set(Object.keys(DEFAULT_ACCOUNT_CONFIG.automation));
 
@@ -354,6 +355,7 @@ function getConfigSnapshot(accountId) {
         friendQuietHours: { ...cfg.friendQuietHours },
         friendBlacklist: [...(cfg.friendBlacklist || [])],
         ui: { ...globalConfig.ui },
+        fertilizerBuyReserveTickets: cfg.fertilizerBuyReserveTickets || 0,
     };
 }
 
@@ -404,6 +406,10 @@ function applyConfigSnapshot(snapshot, options = {}) {
 
     if (Array.isArray(cfg.friendBlacklist)) {
         next.friendBlacklist = cfg.friendBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0);
+    }
+
+    if (cfg.fertilizerBuyReserveTickets !== undefined && cfg.fertilizerBuyReserveTickets !== null) {
+        next.fertilizerBuyReserveTickets = Math.max(0, Number.parseInt(cfg.fertilizerBuyReserveTickets, 10) || 0);
     }
 
     if (cfg.ui && typeof cfg.ui === 'object') {

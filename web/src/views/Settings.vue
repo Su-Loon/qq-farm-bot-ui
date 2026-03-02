@@ -72,6 +72,7 @@ const localSettings = ref({
     open_server_gift: false,
     fertilizer: 'none',
   },
+  fertilizerBuyReserveTickets: 0,
 })
 
 const localOffline = ref({
@@ -98,6 +99,7 @@ function syncLocalSettings() {
       intervals: settings.value.intervals,
       friendQuietHours: settings.value.friendQuietHours,
       automation: settings.value.automation,
+      fertilizerBuyReserveTickets: settings.value.fertilizerBuyReserveTickets || 0,
     }))
 
     // Default automation values if missing
@@ -525,6 +527,21 @@ async function handleSaveOffline() {
               class="w-full md:w-1/2"
               :options="fertilizerOptions"
             />
+          </div>
+
+          <!-- Fertilizer Buy Reserve Tickets -->
+          <div v-if="localSettings.automation.fertilizer_buy" class="rounded bg-green-50 p-3 dark:bg-green-900/20">
+            <BaseInput
+              v-model.number="localSettings.fertilizerBuyReserveTickets"
+              label="保留点券"
+              type="number"
+              min="0"
+              placeholder="购买化肥时保留的点券数量"
+              class="w-full md:w-1/2"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              自动购买化肥时会保留指定数量的点券不使用
+            </p>
           </div>
         </div>
 

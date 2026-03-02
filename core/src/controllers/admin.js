@@ -461,7 +461,9 @@ function startAdminServer(dataProvider) {
             const offlineReminder = store.getOfflineReminder
                 ? store.getOfflineReminder()
                 : { channel: 'webhook', reloginUrlMode: 'none', endpoint: '', token: '', title: '账号下线提醒', msg: '账号下线', offlineDeleteSec: 120 };
-            res.json({ ok: true, data: { intervals, strategy, preferredSeed, friendQuietHours, automation, ui, offlineReminder } });
+            const configSnapshot = store.getConfigSnapshot ? store.getConfigSnapshot(id) : {};
+            const fertilizerBuyReserveTickets = configSnapshot.fertilizerBuyReserveTickets || 0;
+            res.json({ ok: true, data: { intervals, strategy, preferredSeed, friendQuietHours, automation, ui, offlineReminder, fertilizerBuyReserveTickets } });
         } catch (e) {
             res.status(500).json({ ok: false, error: e.message });
         }

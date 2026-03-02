@@ -53,6 +53,7 @@ export interface SettingsState {
   automation: AutomationConfig
   ui: UIConfig
   offlineReminder: OfflineConfig
+  fertilizerBuyReserveTickets: number
 }
 
 export const useSettingStore = defineStore('setting', () => {
@@ -72,6 +73,7 @@ export const useSettingStore = defineStore('setting', () => {
       msg: '账号下线',
       offlineDeleteSec: 120,
     },
+    fertilizerBuyReserveTickets: 0,
   })
   const loading = ref(false)
 
@@ -100,6 +102,7 @@ export const useSettingStore = defineStore('setting', () => {
           msg: '账号下线',
           offlineDeleteSec: 120,
         }
+        settings.value.fertilizerBuyReserveTickets = d.fertilizerBuyReserveTickets || 0
       }
     }
     finally {
@@ -118,6 +121,7 @@ export const useSettingStore = defineStore('setting', () => {
         preferredSeedId: newSettings.preferredSeedId,
         intervals: newSettings.intervals,
         friendQuietHours: newSettings.friendQuietHours,
+        fertilizerBuyReserveTickets: newSettings.fertilizerBuyReserveTickets,
       }
 
       await api.post('/api/settings/save', settingsPayload, {

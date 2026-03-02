@@ -11,7 +11,7 @@ const { getEmailDailyState } = require('../services/email');
 const { checkFarm, startFarmCheckLoop, stopFarmCheckLoop, refreshFarmCheckLoop, getLandsDetail, getAvailableSeeds, runFarmOperation, runFertilizerByConfig } = require('../services/farm');
 const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, getFriendsList, getFriendLandsDetail, doFriendOperation } = require('../services/friend');
 const { processInviteCodes } = require('../services/invite');
-const { autoBuyOrganicFertilizer, buyFreeGifts, getFreeGiftDailyState } = require('../services/mall');
+const { autoBuyFertilizer, buyFreeGifts, getFreeGiftDailyState } = require('../services/mall');
 const { performDailyMonthCardGift, getMonthCardDailyState } = require('../services/monthcard');
 const { performDailyOpenServerGift, getOpenServerDailyState } = require('../services/openserver');
 const { performDailyVipGift, getVipDailyState } = require('../services/qqvip');
@@ -220,7 +220,7 @@ async function runFarmTick(auto) {
         if (auto.task) await checkAndClaimTasks();
         if (auto.email) await checkAndClaimEmails();
         if (auto.fertilizer_gift) await openFertilizerGiftPacksSilently();
-        if (auto.fertilizer_buy) await autoBuyOrganicFertilizer();
+        if (auto.fertilizer_buy) await autoBuyFertilizer();
     } catch (e) {
         log('系统', `农场调度执行失败: ${e.message}`, { module: 'system', event: 'farm_tick', result: 'error' });
     } finally {
