@@ -101,7 +101,7 @@ async function autoBuyOrganicFertilizerViaMall() {
     const goodsId = toNum(goods.goods_id);
     if (goodsId <= 0) return 0;
     const singlePrice = parseMallPriceValue(goods.price);
-    let ticket = Math.max(0, toNum((getUserState() || {}).ticket));
+    const ticket = Math.max(0, toNum((getUserState() || {}).ticket));
     
     // 获取保留点券的配置
     const config = getAccountConfigSnapshot('');

@@ -902,12 +902,12 @@ async function checkFarm() {
 
 /**
  * 手动/自动执行农场操作
- * @param {string} opType - 'all', 'harvest', 'clear', 'plant', 'upgrade'
+ * @param {string} opType - 'all', 'harvest', 'clear', 'plant', 'upgrade', 'remove_all'
  */
 async function runFarmOperation(opType) {
     const landsReply = await getAllLands();
     if (!landsReply.lands || landsReply.lands.length === 0) {
-        if (opType !== 'all') {
+        if (opType !== 'all' && opType !== 'remove_all') {
             log('农场', '没有土地数据');
         }
         return { hadWork: false, actions: [] };
@@ -930,6 +930,52 @@ async function runFarmOperation(opType) {
 
     const actions = [];
     const batchOps = [];
+
+    // 执行一键锄地（铲除所有已种植的农作物）
+    if (opType === 'remove_all') {
+        const plantedLandIds = [];
+        for (const land of lands) {
+            if (!land.unlocked) continue;
+            const plant = land.plant;
+            if (plant && plant.phases && plant.phases.length > 0) {
+                const currentPhase = getCurrentPhase(plant.phases, false, '');
+                if (currentPhase) {
+                    const phaseVal = currentPhase.phase;
+                    if (phaseVal !== PlantPhase.DEAD && phaseVal !== PlantPhase.UNKNOWN) {
+                        plantedLandIds.push(toNum(land.id));
+                    }
+                }
+            }
+        }
+
+        if (plantedLandIds.length > 0) {
+            try {
+                await removePlant(plantedLandIds);
+                log('铲除', `已铲除 ${plantedLandIds.length} 块土地的农作物 (${plantedLandIds.join(',')})`, {
+                    module: 'farm',
+                    event: 'remove_all_plants',
+                    result: 'ok',
+                    count: plantedLandIds.length,
+                    landIds: plantedLandIds,
+                });
+                actions.push(`锄地${plantedLandIds.length}`);
+                recordOperation('remove_plant', plantedLandIds.length);
+            } catch (e) {
+                logWarn('铲除', `批量铲除失败: ${e.message}`, {
+                    module: 'farm',
+                    event: 'remove_all_plants',
+                    result: 'error',
+                });
+            }
+        } else {
+            log('铲除', '没有需要铲除的农作物', {
+                module: 'farm',
+                event: 'remove_all_plants',
+                result: 'none',
+            });
+        }
+        return { hadWork: actions.length > 0, actions };
+    }
 
     // 执行除草/虫/水
     if (opType === 'all' || opType === 'clear') {
