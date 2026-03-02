@@ -188,7 +188,7 @@ function handleFriendAvatarError(friend: any) {
           :disabled="loading"
           @click="loadFriends"
         >
-          <div class="i-carbon-refresh" />
+          <div class="i-carbon-renew" />
           刷新
         </button>
         <div v-if="friends.length" class="text-sm text-gray-500">

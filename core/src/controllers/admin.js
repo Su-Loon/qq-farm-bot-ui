@@ -425,6 +425,42 @@ function startAdminServer(dataProvider) {
         }
     });
 
+    // API: 保存配置到所有账号
+    app.post('/api/settings/save-all', async (req, res) => {
+        try {
+            const body = req.body || {};
+            const accountsData = store.getAccounts();
+            const accounts = accountsData && accountsData.accounts ? accountsData.accounts : [];
+            if (!accounts || accounts.length === 0) {
+                return res.json({ ok: true, message: '没有账号需要保存', count: 0 });
+            }
+
+            let successCount = 0;
+            const errors = [];
+
+            for (const acc of accounts) {
+                const accId = String(acc.id || '');
+                if (!accId) continue;
+                try {
+                    await provider.saveSettings(accId, body);
+                    successCount++;
+                } catch (e) {
+                    errors.push({ id: accId, error: e.message });
+                }
+            }
+
+            res.json({
+                ok: true,
+                message: `已保存到 ${successCount}/${accounts.length} 个账号`,
+                count: successCount,
+                total: accounts.length,
+                errors: errors.length > 0 ? errors : undefined,
+            });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
     // API: 设置面板主题
     app.post('/api/settings/theme', async (req, res) => {
         try {

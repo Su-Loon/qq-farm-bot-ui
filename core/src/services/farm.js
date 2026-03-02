@@ -979,13 +979,13 @@ async function runFarmOperation(opType) {
 
     // 执行除草/虫/水
     if (opType === 'all' || opType === 'clear') {
-        if (status.needWeed.length > 0) {
+        if (status.needWeed.length > 0 && isAutomationOn('farm_weed')) {
             batchOps.push(weedOut(status.needWeed).then(() => { actions.push(`除草${status.needWeed.length}`); recordOperation('weed', status.needWeed.length); }).catch(e => logWarn('除草', e.message)));
         }
-        if (status.needBug.length > 0) {
+        if (status.needBug.length > 0 && isAutomationOn('farm_bug')) {
             batchOps.push(insecticide(status.needBug).then(() => { actions.push(`除虫${status.needBug.length}`); recordOperation('bug', status.needBug.length); }).catch(e => logWarn('除虫', e.message)));
         }
-        if (status.needWater.length > 0) {
+        if (status.needWater.length > 0 && isAutomationOn('farm_water')) {
             batchOps.push(waterLand(status.needWater).then(() => { actions.push(`浇水${status.needWater.length}`); recordOperation('water', status.needWater.length); }).catch(e => logWarn('浇水', e.message)));
         }
         if (batchOps.length > 0) await Promise.all(batchOps);

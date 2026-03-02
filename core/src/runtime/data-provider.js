@@ -104,6 +104,7 @@ function createDataProvider(options) {
                 intervals: body.intervals,
                 friendQuietHours: body.friendQuietHours,
                 fertilizerBuyReserveTickets: body.fertilizerBuyReserveTickets,
+                automation: body.automation,
             };
             store.applyConfigSnapshot(snapshot, { accountId });
             const rev = nextConfigRevision();

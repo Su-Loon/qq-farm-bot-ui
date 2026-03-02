@@ -4,7 +4,7 @@
 
 const { CONFIG, PlantPhase, PHASE_NAMES } = require('../config/config');
 const { getPlantName, getPlantById, getSeedImageBySeedId } = require('../config/gameConfig');
-const { isAutomationOn, getFriendQuietHours, getFriendBlacklist } = require('../models/store');
+const { isAutomationOn, getFriendQuietHours, getFriendBlacklist, setFriendBlacklist } = require('../models/store');
 const { sendMsgAsync, getUserState, networkEvents } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { toLong, toNum, toTimeSec, getServerTimeSec, log, logWarn, sleep } = require('../utils/utils');
@@ -93,8 +93,30 @@ async function enterFriendFarm(friendGid) {
         host_gid: toLong(friendGid),
         reason: 2,  // ENTER_REASON_FRIEND
     })).finish();
-    const { body: replyBody } = await sendMsgAsync('gamepb.visitpb.VisitService', 'Enter', body);
-    return types.VisitEnterReply.decode(replyBody);
+    try {
+        const { body: replyBody } = await sendMsgAsync('gamepb.visitpb.VisitService', 'Enter', body);
+        return types.VisitEnterReply.decode(replyBody);
+    } catch (e) {
+        // 检测是否是被封禁的账号
+        const errorMsg = e.message || '';
+        if (errorMsg.includes('封禁') || errorMsg.includes('禁止') || errorMsg.includes('blocked')) {
+            const gid = toNum(friendGid);
+            if (gid > 0) {
+                // 将被封禁的账号加入黑名单
+                const blacklist = getFriendBlacklist();
+                if (!blacklist.includes(gid)) {
+                    const newBlacklist = [...blacklist, gid];
+                    setFriendBlacklist(newBlacklist);
+                    log('好友', `账号 ${gid} 已被封禁，自动加入黑名单`, {
+                        module: 'friend',
+                        event: 'ban_detected',
+                        friendGid: gid
+                    });
+                }
+            }
+        }
+        throw e;
+    }
 }
 
 async function leaveFriendFarm(friendGid) {
@@ -845,6 +867,17 @@ async function checkFriends() {
             if (blacklist.has(gid)) continue;
             
             const name = f.remark || f.name || `GID:${gid}`;
+            // 跳过名字为"蒙面偷菜的好友"的巡查
+            if (name === '蒙面偷菜的好友') {
+                log('好友', `跳过巡查: ${name}`, {
+                    module: 'friend',
+                    event: 'skip_friend',
+                    friendName: name,
+                    friendGid: gid,
+                    reason: 'masked_stealer'
+                });
+                continue;
+            }
             const p = f.plant;
             const stealNum = p ? toNum(p.steal_plant_num) : 0;
             const dryNum = p ? toNum(p.dry_num) : 0;

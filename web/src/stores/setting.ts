@@ -170,5 +170,28 @@ export const useSettingStore = defineStore('setting', () => {
     }
   }
 
-  return { settings, loading, fetchSettings, saveSettings, saveOfflineConfig, changeAdminPassword }
+  async function saveSettingsToAll(newSettings: any) {
+    loading.value = true
+    try {
+      const settingsPayload = {
+        plantingStrategy: newSettings.plantingStrategy,
+        preferredSeedId: newSettings.preferredSeedId,
+        intervals: newSettings.intervals,
+        friendQuietHours: newSettings.friendQuietHours,
+        fertilizerBuyReserveTickets: newSettings.fertilizerBuyReserveTickets,
+        automation: newSettings.automation,
+      }
+
+      const { data } = await api.post('/api/settings/save-all', settingsPayload)
+      if (data && data.ok) {
+        return { ok: true, message: data.message, count: data.count, total: data.total }
+      }
+      return { ok: false, error: data.error || '保存失败' }
+    }
+    finally {
+      loading.value = false
+    }
+  }
+
+  return { settings, loading, fetchSettings, saveSettings, saveSettingsToAll, saveOfflineConfig, changeAdminPassword }
 })

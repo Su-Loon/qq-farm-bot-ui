@@ -20,6 +20,7 @@ const { currentAccountId, accounts } = storeToRefs(accountStore)
 const { seeds } = storeToRefs(farmStore)
 
 const saving = ref(false)
+const savingAll = ref(false)
 const passwordSaving = ref(false)
 const offlineSaving = ref(false)
 
@@ -71,6 +72,10 @@ const localSettings = ref({
     month_card: false,
     open_server_gift: false,
     fertilizer: 'none',
+    // 自动处理自己农场的虫草水
+    farm_water: true,
+    farm_weed: true,
+    farm_bug: true,
   },
   fertilizerBuyReserveTickets: 0,
 })
@@ -124,6 +129,9 @@ function syncLocalSettings() {
         month_card: false,
         open_server_gift: false,
         fertilizer: 'none',
+        farm_water: true,
+        farm_weed: true,
+        farm_bug: true,
       }
     }
     else {
@@ -148,6 +156,9 @@ function syncLocalSettings() {
         month_card: false,
         open_server_gift: false,
         fertilizer: 'none',
+        farm_water: true,
+        farm_weed: true,
+        farm_bug: true,
       }
       localSettings.value.automation = {
         ...defaults,
@@ -337,6 +348,26 @@ async function saveAccountSettings() {
   }
 }
 
+async function saveSettingsToAllAccounts() {
+  if (accounts.value.length === 0) {
+    showAlert('没有可用的账号', 'danger')
+    return
+  }
+  savingAll.value = true
+  try {
+    const res = await settingStore.saveSettingsToAll(localSettings.value)
+    if (res.ok) {
+      showAlert(res.message || `已保存到 ${res.count}/${res.total} 个账号`)
+    }
+    else {
+      showAlert(`保存失败: ${res.error}`, 'danger')
+    }
+  }
+  finally {
+    savingAll.value = false
+  }
+}
+
 async function handleChangePassword() {
   if (!passwordForm.value.old || !passwordForm.value.new) {
     showAlert('请填写完整', 'danger')
@@ -509,6 +540,10 @@ async function handleSaveOffline() {
             <BaseSwitch v-model="localSettings.automation.open_server_gift" label="自动开服红包" />
             <BaseSwitch v-model="localSettings.automation.fertilizer_gift" label="自动填充化肥" />
             <BaseSwitch v-model="localSettings.automation.fertilizer_buy" label="自动购买化肥" />
+            <!-- 自动处理自己农场的虫草水 -->
+            <BaseSwitch v-model="localSettings.automation.farm_water" label="自动浇水" />
+            <BaseSwitch v-model="localSettings.automation.farm_weed" label="自动除草" />
+            <BaseSwitch v-model="localSettings.automation.farm_bug" label="自动除虫" />
           </div>
 
           <!-- Sub-controls -->
@@ -546,7 +581,15 @@ async function handleSaveOffline() {
         </div>
 
         <!-- Save Button -->
-        <div class="mt-auto flex justify-end border-t bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900/50">
+        <div class="mt-auto flex flex-wrap items-center justify-end gap-2 border-t bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900/50">
+          <BaseButton
+            variant="secondary"
+            size="sm"
+            :loading="savingAll"
+            @click="saveSettingsToAllAccounts"
+          >
+            保存配置到所有账号
+          </BaseButton>
           <BaseButton
             variant="primary"
             size="sm"

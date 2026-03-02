@@ -46,6 +46,10 @@ const DEFAULT_ACCOUNT_CONFIG = {
         open_server_gift: true,
         sell: true,
         fertilizer: 'none',
+        // 自动处理自己农场的虫草水
+        farm_water: true,   // 自动浇水
+        farm_weed: true,    // 自动除草
+        farm_bug: true,     // 自动除虫
     },
     plantingStrategy: 'preferred',
     preferredSeedId: 0,
