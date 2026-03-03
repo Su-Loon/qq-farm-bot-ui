@@ -4,7 +4,8 @@
 
 const { CONFIG, PlantPhase, PHASE_NAMES } = require('../config/config');
 const { getPlantName, getPlantById, getSeedImageBySeedId } = require('../config/gameConfig');
-const { isAutomationOn, getFriendQuietHours, getFriendBlacklist, setFriendBlacklist } = require('../models/store');
+const { parentPort } = require('node:worker_threads');
+const { isAutomationOn, getFriendQuietHours, getFriendBlacklist } = require('../models/store');
 const { sendMsgAsync, getUserState, networkEvents } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { toLong, toNum, toTimeSec, getServerTimeSec, log, logWarn, sleep } = require('../utils/utils');
@@ -64,6 +65,52 @@ function inFriendQuietHours(now = new Date()) {
     return cur >= start || cur < end; // 跨天时段
 }
 
+function isEnterFarmBannedError(error) {
+    const message = String((error && error.message) || error || '');
+    if (!message) return false;
+    return message.includes('1002003');
+}
+
+function postToMaster(payload) {
+    try {
+        if (process.send) {
+            process.send(payload);
+            return true;
+        }
+        if (parentPort && typeof parentPort.postMessage === 'function') {
+            parentPort.postMessage(payload);
+            return true;
+        }
+    } catch {}
+    return false;
+}
+
+function addFriendToBlacklist(friendGid, friendName, reason = '') {
+    const gid = toNum(friendGid);
+    if (!gid) return false;
+    const currentList = getFriendBlacklist();
+    const current = Array.isArray(currentList) ? currentList : [];
+    if (current.includes(gid)) return false;
+
+    const sent = postToMaster({
+        type: 'friend_blacklist_add',
+        gid,
+        friendName: friendName || `GID:${gid}`,
+        reason: String(reason || ''),
+    });
+    if (!sent) return false;
+
+    logWarn('好友', `检测到封禁好友，已自动加入黑名单: ${friendName || `GID:${gid}`}`, {
+        module: 'friend',
+        event: '加黑名单',
+        result: 'auto_blocked',
+        friendName: friendName || `GID:${gid}`,
+        friendGid: gid,
+        reason: String(reason || ''),
+    });
+    return true;
+}
+
 // ============ 好友 API ============
 
 async function getAllFriends() {
@@ -93,30 +140,8 @@ async function enterFriendFarm(friendGid) {
         host_gid: toLong(friendGid),
         reason: 2,  // ENTER_REASON_FRIEND
     })).finish();
-    try {
-        const { body: replyBody } = await sendMsgAsync('gamepb.visitpb.VisitService', 'Enter', body);
-        return types.VisitEnterReply.decode(replyBody);
-    } catch (e) {
-        // 检测是否是被封禁的账号
-        const errorMsg = e.message || '';
-        if (errorMsg.includes('封禁') || errorMsg.includes('禁止') || errorMsg.includes('blocked')) {
-            const gid = toNum(friendGid);
-            if (gid > 0) {
-                // 将被封禁的账号加入黑名单
-                const blacklist = getFriendBlacklist();
-                if (!blacklist.includes(gid)) {
-                    const newBlacklist = [...blacklist, gid];
-                    setFriendBlacklist(newBlacklist);
-                    log('好友', `账号 ${gid} 已被封禁，自动加入黑名单`, {
-                        module: 'friend',
-                        event: 'ban_detected',
-                        friendGid: gid
-                    });
-                }
-            }
-        }
-        throw e;
-    }
+    const { body: replyBody } = await sendMsgAsync('gamepb.visitpb.VisitService', 'Enter', body);
+    return types.VisitEnterReply.decode(replyBody);
 }
 
 async function leaveFriendFarm(friendGid) {
@@ -595,6 +620,10 @@ async function doFriendOperation(friendGid, opType) {
     try {
         enterReply = await enterFriendFarm(gid);
     } catch (e) {
+        if (isEnterFarmBannedError(e)) {
+            addFriendToBlacklist(gid, `GID:${gid}`, e && e.message ? e.message : '');
+            return { ok: true, opType, count: 0, message: '好友已自动加入黑名单' };
+        }
         return { ok: false, message: `进入好友农场失败: ${e.message}`, opType };
     }
 
@@ -708,6 +737,10 @@ async function visitFriend(friend, totalActions, myGid) {
     try {
         enterReply = await enterFriendFarm(gid);
     } catch (e) {
+        if (isEnterFarmBannedError(e)) {
+            addFriendToBlacklist(gid, name, e && e.message ? e.message : '');
+            return;
+        }
         logWarn('好友', `进入 ${name} 农场失败: ${e.message}`, {
             module: 'friend', event: 'enter_farm', result: 'error', friendName: name, friendGid: gid
         });
@@ -865,19 +898,9 @@ async function checkFriends() {
             if (gid === state.gid) continue;
             if (visitedGids.has(gid)) continue;
             if (blacklist.has(gid)) continue;
+            if (String(f.name || '').trim() === '小小农夫' || String(f.remark || '').trim() === '小小农夫') continue;
             
             const name = f.remark || f.name || `GID:${gid}`;
-            // 跳过名字为"蒙面偷菜的好友"的巡查
-            if (name === '蒙面偷菜的好友') {
-                log('好友', `跳过巡查: ${name}`, {
-                    module: 'friend',
-                    event: 'skip_friend',
-                    friendName: name,
-                    friendGid: gid,
-                    reason: 'masked_stealer'
-                });
-                continue;
-            }
             const p = f.plant;
             const stealNum = p ? toNum(p.steal_plant_num) : 0;
             const dryNum = p ? toNum(p.dry_num) : 0;

@@ -16,9 +16,9 @@ const imageErrors = ref<Record<string | number, boolean>>({})
 const sortOptions = [
   { value: 'exp', label: '经验/小时' },
   { value: 'fert', label: '普通肥经验/小时' },
-  { value: 'profit', label: '利润/小时' },
+  { value: 'profit', label: '净利润/小时' },
   { value: 'fert_profit', label: '普通肥利润/小时' },
-  { value: 'level', label: '等级' },
+  { value: 'level', label: '作物等级' },
 ]
 
 async function loadAnalytics() {

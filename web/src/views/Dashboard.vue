@@ -2,16 +2,19 @@
 import { useIntervalFn } from '@vueuse/core'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import ConfirmModal from '@/components/ConfirmModal.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { useAccountStore } from '@/stores/account'
 import { useBagStore } from '@/stores/bag'
 import { useStatusStore } from '@/stores/status'
+import { useToastStore } from '@/stores/toast'
 
 const statusStore = useStatusStore()
 const accountStore = useAccountStore()
 const bagStore = useBagStore()
+const toastStore = useToastStore()
 const {
   status,
   logs: statusLogs,
@@ -23,113 +26,9 @@ const { dashboardItems } = storeToRefs(bagStore)
 const logContainer = ref<HTMLElement | null>(null)
 const autoScroll = ref(true)
 const lastBagFetchAt = ref(0)
-
-// 日志标签页: 'logs' | 'friendOps'
-const activeLogTab = ref<'logs' | 'friendOps'>('logs')
-
-// 好友互动记录（从运行日志中提取）
-interface FriendInteraction {
-  id: string
-  friendName: string
-  operation: 'steal' | 'water' | 'weed' | 'bug' | 'bad' | 'help'
-  details: string
-  time: string
-  ts: number
-}
-
-// 从运行日志中提取好友互动记录
-const friendInteractions = computed<FriendInteraction[]>(() => {
-  const logs = statusLogs.value || []
-  const interactions: FriendInteraction[] = []
-
-  // 好友操作关键词映射
-  const opPatterns = [
-    { pattern: /偷取.*完成/, type: 'steal' as const, extract: (msg: string) => {
-      const match = msg.match(/偷取完成\s*(\d+)\s*块?\s*\(?([^)]*)\)?/)
-      return match ? { count: match[1], crops: match[2] } : null
-    } },
-    { pattern: /浇水.*完成/, type: 'water' as const, extract: (msg: string) => {
-      const match = msg.match(/浇水完成\s*(\d+)/)
-      return match ? { count: match[1] } : null
-    } },
-    { pattern: /除草.*完成/, type: 'weed' as const, extract: (msg: string) => {
-      const match = msg.match(/除草完成\s*(\d+)/)
-      return match ? { count: match[1] } : null
-    } },
-    { pattern: /除虫.*完成/, type: 'bug' as const, extract: (msg: string) => {
-      const match = msg.match(/除虫完成\s*(\d+)/)
-      return match ? { count: match[1] } : null
-    } },
-    { pattern: /放草.*完成|放虫.*完成/, type: 'bad' as const, extract: (msg: string) => {
-      const match = msg.match(/(放草|放虫)完成\s*(\d+)/)
-      return match ? { type: match[1], count: match[2] } : null
-    } },
-    { pattern: /访问好友.*完成/, type: 'help' as const, extract: (msg: string) => {
-      const match = msg.match(/访问好友\s*(\d+)/)
-      return match ? { count: match[1] } : null
-    } },
-  ]
-
-  logs.forEach((log: any) => {
-    const msg = String(log.msg || '')
-    const meta = log.meta || {}
-
-    // 只处理好友模块的日志
-    if (meta.module !== 'friend')
-      return
-
-    // 匹配操作类型
-    for (const op of opPatterns) {
-      if (op.pattern.test(msg)) {
-        const extracted = op.extract(msg)
-        if (extracted) {
-          let details = ''
-          if ('crops' in extracted && extracted.crops) {
-            details = `${extracted.count} 块 (${extracted.crops})`
-          }
-          else if ('count' in extracted) {
-            details = `${extracted.count} 块`
-          }
-
-          interactions.push({
-            id: `${log.ts}_${interactions.length}`,
-            friendName: meta.friendName || meta.friendGid || '未知好友',
-            operation: op.type,
-            details,
-            time: log.time || new Date(log.ts).toISOString().replace('T', ' ').slice(0, 19),
-            ts: Number(log.ts) || Date.now(),
-          })
-        }
-        break
-      }
-    }
-  })
-
-  // 按时间倒序排列，只返回最近50条
-  return interactions.sort((a, b) => b.ts - a.ts).slice(0, 50)
-})
-
-// 刷新好友互动记录（从日志中重新提取）
-function refreshFriendInteractions() {
-  // 由于使用了computed，数据会自动更新
-  // 这里可以触发日志刷新
-  if (currentAccountId.value) {
-    statusStore.fetchLogs(currentAccountId.value, { limit: 200 })
-  }
-}
-
-// 获取操作类型的显示文本和样式
-function getFriendOpInfo(op: FriendInteraction['operation']) {
-  const map: Record<FriendInteraction['operation'], { label: string, color: string, bgColor: string, icon: string }> = {
-    steal: { label: '偷取', color: 'text-red-600', bgColor: 'bg-red-100', icon: 'i-carbon-shopping-bag' },
-    water: { label: '浇水', color: 'text-blue-600', bgColor: 'bg-blue-100', icon: 'i-carbon-rain-drop' },
-    weed: { label: '除草', color: 'text-green-600', bgColor: 'bg-green-100', icon: 'i-carbon-clean' },
-    bug: { label: '除虫', color: 'text-orange-600', bgColor: 'bg-orange-100', icon: 'i-carbon-warning' },
-    bad: { label: '放草/虫', color: 'text-purple-600', bgColor: 'bg-purple-100', icon: 'i-carbon-face-wink' },
-    help: { label: '帮助', color: 'text-teal-600', bgColor: 'bg-teal-100', icon: 'i-carbon-user-follow' },
-  }
-  return map[op]
-}
+const clearLogsLoading = ref(false)
+const clearLogsConfirmVisible = ref(false)
+const clearLogsConfirmLoading = ref(false)
 
 const allLogs = computed(() => {
   const sLogs = statusLogs.value || []
@@ -190,6 +89,7 @@ const events = [
   { label: '土地解锁', value: 'unlock_land' },
   { label: '好友巡查', value: 'friend_cycle' },
   { label: '访问好友', value: 'visit_friend' },
+  { label: '加黑名单', value: '加黑名单' },
 ]
 
 const eventLabelMap: Record<string, string> = Object.fromEntries(
@@ -296,6 +196,10 @@ const nextFriendCheck = ref('--:--:--')
 const localUptime = ref(0)
 let localNextFarmRemainSec = 0
 let localNextFriendRemainSec = 0
+let localFarmInspecting = false
+let localFriendInspecting = false
+let localFarmWaiting = false
+let localFriendWaiting = false
 
 function updateCountdowns() {
   // Update uptime
@@ -305,20 +209,34 @@ function updateCountdowns() {
   }
   else {
     localUptime.value++
-    if (localNextFarmRemainSec > 0) {
+
+    // 优先显示巡查状态
+    if (localFarmInspecting) {
+      nextFarmCheck.value = '巡查中...'
+    }
+    else if (localFarmWaiting) {
+      nextFarmCheck.value = '等待巡查...'
+    }
+    else if (localNextFarmRemainSec > 0) {
       localNextFarmRemainSec--
       nextFarmCheck.value = formatDuration(localNextFarmRemainSec)
     }
     else {
-      nextFarmCheck.value = '巡查中...'
+      nextFarmCheck.value = '等待巡查...'
     }
 
-    if (localNextFriendRemainSec > 0) {
+    if (localFriendInspecting) {
+      nextFriendCheck.value = '巡查中...'
+    }
+    else if (localFriendWaiting) {
+      nextFriendCheck.value = '等待巡查...'
+    }
+    else if (localNextFriendRemainSec > 0) {
       localNextFriendRemainSec--
       nextFriendCheck.value = formatDuration(localNextFriendRemainSec)
     }
     else {
-      nextFriendCheck.value = '巡查中...'
+      nextFriendCheck.value = '等待巡查...'
     }
   }
 }
@@ -330,6 +248,10 @@ watch(status, (newVal) => {
     // Here we just take server value when it comes.
     localNextFarmRemainSec = newVal.nextChecks.farmRemainSec || 0
     localNextFriendRemainSec = newVal.nextChecks.friendRemainSec || 0
+    localFarmInspecting = newVal.nextChecks.farmInspecting || false
+    localFriendInspecting = newVal.nextChecks.friendInspecting || false
+    localFarmWaiting = newVal.nextChecks.farmWaiting || false
+    localFriendWaiting = newVal.nextChecks.friendWaiting || false
     updateCountdowns() // Update immediately
   }
   if (newVal?.uptime !== undefined) {
@@ -458,6 +380,32 @@ function onLogFilterChange() {
 
 function onLogSearchTrigger() {
   refresh(true)
+}
+
+async function onClearLogs() {
+  if (!currentAccountId.value || clearLogsLoading.value)
+    return
+  clearLogsConfirmVisible.value = true
+}
+
+async function executeClearLogs() {
+  if (!currentAccountId.value || clearLogsLoading.value)
+    return
+  try {
+    clearLogsConfirmLoading.value = true
+    clearLogsLoading.value = true
+    const ret = await statusStore.clearLogs(currentAccountId.value)
+    toastStore.success(`已清空 ${Number(ret?.cleared) || 0} 条运行日志`)
+    clearLogsConfirmVisible.value = false
+    await refresh(true)
+  }
+  catch (e: any) {
+    toastStore.error(e?.message || '清空运行日志失败')
+  }
+  finally {
+    clearLogsConfirmLoading.value = false
+    clearLogsLoading.value = false
+  }
 }
 
 watch(currentAccountId, () => {
@@ -659,39 +607,13 @@ useIntervalFn(updateCountdowns, 1000)
       <div class="flex flex-1 flex-col gap-6 md:w-3/4 md:overflow-hidden">
         <!-- Logs -->
         <div class="flex flex-1 flex-col rounded-lg bg-white p-6 shadow md:overflow-hidden dark:bg-gray-800">
-          <!-- 标签页头部 -->
           <div class="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex items-center gap-4">
-              <!-- 标签页切换按钮 -->
-              <div class="flex rounded-lg bg-gray-100 p-1 dark:bg-gray-700">
-                <button
-                  class="flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition"
-                  :class="activeLogTab === 'logs'
-                    ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-600 dark:text-blue-400'
-                    : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'"
-                  @click="activeLogTab = 'logs'"
-                >
-                  <div class="i-carbon-document" />
-                  运行日志
-                </button>
-                <button
-                  class="flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition"
-                  :class="activeLogTab === 'friendOps'
-                    ? 'bg-white text-blue-600 shadow-sm dark:bg-gray-600 dark:text-blue-400'
-                    : 'text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'"
-                  @click="activeLogTab = 'friendOps'"
-                >
-                  <div class="i-carbon-user-multiple" />
-                  好友互动记录
-                  <span v-if="friendInteractions.length > 0" class="ml-1 rounded-full bg-red-500 px-1.5 py-0.5 text-xs text-white">
-                    {{ friendInteractions.length }}
-                  </span>
-                </button>
-              </div>
-            </div>
+            <h3 class="flex items-center gap-2 text-lg font-medium">
+              <div class="i-carbon-document" />
+              <span>运行日志</span>
+            </h3>
 
-            <!-- 运行日志的筛选器 -->
-            <div v-if="activeLogTab === 'logs'" class="flex flex-wrap items-center gap-2 text-sm">
+            <div class="flex flex-wrap items-center gap-2 text-sm">
               <BaseSelect
                 v-model="filter.module"
                 :options="modules"
@@ -729,22 +651,20 @@ useIntervalFn(updateCountdowns, 1000)
               >
                 <div class="i-carbon-search" />
               </BaseButton>
-            </div>
 
-            <!-- 好友互动记录的刷新按钮 -->
-            <div v-else class="flex items-center gap-2">
-              <button
-                class="flex items-center gap-1 rounded bg-gray-100 px-3 py-1.5 text-sm text-gray-700 transition dark:bg-gray-700 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-600"
-                @click="refreshFriendInteractions"
+              <BaseButton
+                variant="danger"
+                size="sm"
+                :loading="clearLogsLoading"
+                @click="onClearLogs"
               >
-                <div class="i-carbon-renew" />
-                刷新
-              </button>
+                <div class="i-carbon-trash-can mr-1" />
+                清空日志
+              </BaseButton>
             </div>
           </div>
 
-          <!-- 运行日志内容 -->
-          <div v-if="activeLogTab === 'logs'" ref="logContainer" class="max-h-[50vh] min-h-0 flex-1 overflow-y-auto rounded bg-gray-50 p-4 text-sm leading-relaxed font-mono md:max-h-none dark:bg-gray-900" @scroll="onLogScroll">
+          <div ref="logContainer" class="max-h-[50vh] min-h-0 flex-1 overflow-y-auto rounded bg-gray-50 p-4 text-sm leading-relaxed md:max-h-none dark:bg-gray-900" @scroll="onLogScroll">
             <div v-if="!allLogs.length" class="py-8 text-center text-gray-400">
               暂无日志
             </div>
@@ -753,53 +673,6 @@ useIntervalFn(updateCountdowns, 1000)
               <span class="mr-2 rounded px-1.5 py-0.5 text-xs font-bold" :class="getLogTagClass(log.tag)">{{ log.tag }}</span>
               <span v-if="log.meta?.event" class="mr-2 rounded bg-blue-50 px-1.5 py-0.5 text-xs text-blue-500 dark:bg-blue-900/20 dark:text-blue-400">{{ getEventLabel(log.meta.event) }}</span>
               <span :class="getLogMsgClass(log.tag)">{{ log.msg }}</span>
-            </div>
-          </div>
-
-          <!-- 好友互动记录内容 -->
-          <div v-else class="max-h-[50vh] min-h-0 flex-1 overflow-y-auto rounded bg-gray-50 p-4 md:max-h-none dark:bg-gray-900">
-            <div v-if="!friendInteractions.length" class="py-8 text-center text-gray-400">
-              <div class="mb-2">
-                <div class="i-carbon-user-multiple text-4xl text-gray-300 dark:text-gray-600" />
-              </div>
-              <div>暂无好友互动记录</div>
-              <div class="mt-1 text-xs text-gray-300">
-                系统会自动记录您与好友的互动操作
-              </div>
-            </div>
-            <div v-else class="space-y-2">
-              <div
-                v-for="op in friendInteractions"
-                :key="op.id"
-                class="flex items-center gap-3 rounded-lg bg-white p-3 shadow-sm transition dark:bg-gray-800 hover:shadow-md"
-              >
-                <!-- 操作图标 -->
-                <div
-                  class="h-10 w-10 flex shrink-0 items-center justify-center overflow-hidden rounded-full"
-                  :class="getFriendOpInfo(op.operation).bgColor"
-                >
-                  <div :class="[getFriendOpInfo(op.operation).icon, getFriendOpInfo(op.operation).color]" class="text-lg" />
-                </div>
-
-                <!-- 操作信息 -->
-                <div class="min-w-0 flex-1">
-                  <div class="flex flex-wrap items-center gap-2">
-                    <span class="text-gray-800 font-medium dark:text-gray-200">{{ op.friendName }}</span>
-                    <span
-                      class="flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium"
-                      :class="[getFriendOpInfo(op.operation).bgColor, getFriendOpInfo(op.operation).color]"
-                    >
-                      {{ getFriendOpInfo(op.operation).label }}
-                    </span>
-                    <span class="text-sm text-gray-600 dark:text-gray-400">
-                      {{ op.details }}
-                    </span>
-                  </div>
-                  <div class="mt-1 text-xs text-gray-400">
-                    {{ op.time }}
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -819,7 +692,7 @@ useIntervalFn(updateCountdowns, 1000)
                 <div class="i-carbon-sprout text-lg text-green-500" />
                 <span>农场</span>
               </div>
-              <div class="text-lg font-bold font-mono">
+              <div class="text-lg font-bold">
                 {{ nextFarmCheck }}
               </div>
             </div>
@@ -828,7 +701,7 @@ useIntervalFn(updateCountdowns, 1000)
                 <div class="i-carbon-user-multiple text-lg text-blue-500" />
                 <span>好友</span>
               </div>
-              <div class="text-lg font-bold font-mono">
+              <div class="text-lg font-bold">
                 {{ nextFriendCheck }}
               </div>
             </div>
@@ -872,5 +745,14 @@ useIntervalFn(updateCountdowns, 1000)
         </div>
       </div>
     </div>
+
+    <ConfirmModal
+      :show="clearLogsConfirmVisible"
+      :loading="clearLogsConfirmLoading"
+      title="确认清空日志"
+      message="确定清空当前账号的运行日志吗？此操作不可恢复。"
+      @confirm="executeClearLogs"
+      @cancel="!clearLogsConfirmLoading && (clearLogsConfirmVisible = false)"
+    />
   </div>
 </template>

@@ -28,6 +28,10 @@ const DEFAULT_OFFLINE_REMINDER = {
 const DEFAULT_ACCOUNT_CONFIG = {
     automation: {
         farm: true,
+        farm_manage: true, // 农场打理总开关（浇水/除草/除虫）
+        farm_water: true, // 自动浇水
+        farm_weed: true, // 自动除草
+        farm_bug: true, // 自动除虫
         farm_push: true,   // 收到 LandsNotify 推送时是否立即触发巡田
         land_upgrade: true, // 是否自动升级土地
         friend: true,       // 好友互动总开关
@@ -46,10 +50,6 @@ const DEFAULT_ACCOUNT_CONFIG = {
         open_server_gift: true,
         sell: true,
         fertilizer: 'none',
-        // 自动处理自己农场的虫草水
-        farm_water: true,   // 自动浇水
-        farm_weed: true,    // 自动除草
-        farm_bug: true,     // 自动除虫
     },
     plantingStrategy: 'preferred',
     preferredSeedId: 0,
@@ -67,7 +67,6 @@ const DEFAULT_ACCOUNT_CONFIG = {
         end: '07:00',
     },
     friendBlacklist: [],
-    fertilizerBuyReserveTickets: 0, // 购买化肥时保留的点券数量
 };
 const ALLOWED_AUTOMATION_KEYS = new Set(Object.keys(DEFAULT_ACCOUNT_CONFIG.automation));
 
@@ -110,7 +109,7 @@ function normalizeOfflineReminder(input) {
     const rawReloginUrlMode = (src.reloginUrlMode !== undefined && src.reloginUrlMode !== null)
         ? String(src.reloginUrlMode).trim().toLowerCase()
         : DEFAULT_OFFLINE_REMINDER.reloginUrlMode;
-    const reloginUrlMode = new Set(['none', 'qq_link', 'qr_link']).has(rawReloginUrlMode)
+    const reloginUrlMode = new Set(['none', 'qq_link', 'qr_code','all']).has(rawReloginUrlMode)
         ? rawReloginUrlMode
         : DEFAULT_OFFLINE_REMINDER.reloginUrlMode;
     const token = (src.token !== undefined && src.token !== null)
@@ -359,7 +358,6 @@ function getConfigSnapshot(accountId) {
         friendQuietHours: { ...cfg.friendQuietHours },
         friendBlacklist: [...(cfg.friendBlacklist || [])],
         ui: { ...globalConfig.ui },
-        fertilizerBuyReserveTickets: cfg.fertilizerBuyReserveTickets || 0,
     };
 }
 
@@ -410,10 +408,6 @@ function applyConfigSnapshot(snapshot, options = {}) {
 
     if (Array.isArray(cfg.friendBlacklist)) {
         next.friendBlacklist = cfg.friendBlacklist.map(Number).filter(n => Number.isFinite(n) && n > 0);
-    }
-
-    if (cfg.fertilizerBuyReserveTickets !== undefined && cfg.fertilizerBuyReserveTickets !== null) {
-        next.fertilizerBuyReserveTickets = Math.max(0, Number.parseInt(cfg.fertilizerBuyReserveTickets, 10) || 0);
     }
 
     if (cfg.ui && typeof cfg.ui === 'object') {

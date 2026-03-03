@@ -64,6 +64,26 @@ function createDataProvider(options) {
             const accId = String(accountId || '');
             return filterLogs(globalLogs.filter(l => String(l.accountId || '') === accId), opts).slice(-max);
         },
+        clearLogs: (accountRef) => {
+            const accountId = resolveAccountRefId(accountRef);
+            if (!accountId) {
+                throw new Error('Missing x-account-id');
+            }
+            const accId = String(accountId || '');
+            let cleared = 0;
+            for (let i = globalLogs.length - 1; i >= 0; i -= 1) {
+                if (String((globalLogs[i] && globalLogs[i].accountId) || '') !== accId) continue;
+                globalLogs.splice(i, 1);
+                cleared += 1;
+            }
+
+            const worker = workers[accId];
+            if (worker && Array.isArray(worker.logs)) {
+                worker.logs.length = 0;
+            }
+
+            return { accountId: accId, cleared };
+        },
 
         getAccountLogs: (limit) => accountLogs.slice(-limit).reverse(),
         addAccountLog: (action, msg, accountId, accountName, extra) => addAccountLog(action, msg, accountId, accountName, extra),
@@ -71,6 +91,12 @@ function createDataProvider(options) {
         // 透传方法
         getLands: (accountRef) => callWorkerApi(resolveAccountRefId(accountRef), 'getLands'),
         getFriends: (accountRef) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriends'),
+        getFriendBlacklist: async (accountRef) => {
+            const accountId = resolveAccountRefId(accountRef);
+            if (!accountId) return [];
+            const fromStore = store.getFriendBlacklist ? store.getFriendBlacklist(accountId) : [];
+            return Array.isArray(fromStore) ? fromStore : [];
+        },
         getFriendLands: (accountRef, gid) => callWorkerApi(resolveAccountRefId(accountRef), 'getFriendLands', gid),
         doFriendOp: (accountRef, gid, opType) => callWorkerApi(resolveAccountRefId(accountRef), 'doFriendOp', gid, opType),
         getBag: (accountRef) => callWorkerApi(resolveAccountRefId(accountRef), 'getBag'),
@@ -103,8 +129,6 @@ function createDataProvider(options) {
                 preferredSeedId,
                 intervals: body.intervals,
                 friendQuietHours: body.friendQuietHours,
-                fertilizerBuyReserveTickets: body.fertilizerBuyReserveTickets,
-                automation: body.automation,
             };
             store.applyConfigSnapshot(snapshot, { accountId });
             const rev = nextConfigRevision();
@@ -114,7 +138,6 @@ function createDataProvider(options) {
                 preferredSeed: store.getPreferredSeed(accountId),
                 intervals: store.getIntervals(accountId),
                 friendQuietHours: store.getFriendQuietHours(accountId),
-                fertilizerBuyReserveTickets: body.fertilizerBuyReserveTickets,
                 configRevision: rev,
             };
         },

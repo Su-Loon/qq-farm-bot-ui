@@ -20,9 +20,9 @@ const { currentAccountId, accounts } = storeToRefs(accountStore)
 const { seeds } = storeToRefs(farmStore)
 
 const saving = ref(false)
-const savingAll = ref(false)
 const passwordSaving = ref(false)
 const offlineSaving = ref(false)
+const offlineTesting = ref(false)
 
 const modalVisible = ref(false)
 const modalConfig = ref({
@@ -54,6 +54,10 @@ const localSettings = ref({
   friendQuietHours: { enabled: false, start: '23:00', end: '07:00' },
   automation: {
     farm: false,
+    farm_manage: false,
+    farm_water: false,
+    farm_weed: false,
+    farm_bug: false,
     task: false,
     sell: false,
     friend: false,
@@ -72,12 +76,7 @@ const localSettings = ref({
     month_card: false,
     open_server_gift: false,
     fertilizer: 'none',
-    // 自动处理自己农场的虫草水
-    farm_water: true,
-    farm_weed: true,
-    farm_bug: true,
   },
-  fertilizerBuyReserveTickets: 0,
 })
 
 const localOffline = ref({
@@ -104,13 +103,16 @@ function syncLocalSettings() {
       intervals: settings.value.intervals,
       friendQuietHours: settings.value.friendQuietHours,
       automation: settings.value.automation,
-      fertilizerBuyReserveTickets: settings.value.fertilizerBuyReserveTickets || 0,
     }))
 
     // Default automation values if missing
     if (!localSettings.value.automation) {
       localSettings.value.automation = {
         farm: false,
+        farm_manage: false,
+        farm_water: false,
+        farm_weed: false,
+        farm_bug: false,
         task: false,
         sell: false,
         friend: false,
@@ -129,15 +131,16 @@ function syncLocalSettings() {
         month_card: false,
         open_server_gift: false,
         fertilizer: 'none',
-        farm_water: true,
-        farm_weed: true,
-        farm_bug: true,
       }
     }
     else {
       // Merge with defaults to ensure all keys exist
       const defaults = {
         farm: false,
+        farm_manage: false,
+        farm_water: false,
+        farm_weed: false,
+        farm_bug: false,
         task: false,
         sell: false,
         friend: false,
@@ -156,9 +159,6 @@ function syncLocalSettings() {
         month_card: false,
         open_server_gift: false,
         fertilizer: 'none',
-        farm_water: true,
-        farm_weed: true,
-        farm_bug: true,
       }
       localSettings.value.automation = {
         ...defaults,
@@ -252,8 +252,9 @@ const CHANNEL_DOCS: Record<string, string> = {
 
 const reloginUrlModeOptions = [
   { label: '不需要', value: 'none' },
-  { label: 'QQ直链', value: 'qq_link' },
-  { label: '二维码链接', value: 'qr_link' },
+  { label: '链接', value: 'qq_link' },
+  { label: '二维码', value: 'qr_code' },
+  { label: '二维码+链接', value: 'all' },
 ]
 
 const currentChannelDocUrl = computed(() => {
@@ -348,26 +349,6 @@ async function saveAccountSettings() {
   }
 }
 
-async function saveSettingsToAllAccounts() {
-  if (accounts.value.length === 0) {
-    showAlert('没有可用的账号', 'danger')
-    return
-  }
-  savingAll.value = true
-  try {
-    const res = await settingStore.saveSettingsToAll(localSettings.value)
-    if (res.ok) {
-      showAlert(res.message || `已保存到 ${res.count}/${res.total} 个账号`)
-    }
-    else {
-      showAlert(`保存失败: ${res.error}`, 'danger')
-    }
-  }
-  finally {
-    savingAll.value = false
-  }
-}
-
 async function handleChangePassword() {
   if (!passwordForm.value.old || !passwordForm.value.new) {
     showAlert('请填写完整', 'danger')
@@ -413,6 +394,26 @@ async function handleSaveOffline() {
   }
   finally {
     offlineSaving.value = false
+  }
+}
+
+async function handleTestOffline() {
+  offlineTesting.value = true
+  try {
+    const { data } = await api.post('/api/settings/offline-reminder/test', localOffline.value)
+    if (data?.ok) {
+      showAlert('测试消息发送成功')
+    }
+    else {
+      showAlert(`测试失败: ${data?.error || '未知错误'}`, 'danger')
+    }
+  }
+  catch (e: any) {
+    const msg = e?.response?.data?.error || e?.message || '请求失败'
+    showAlert(`测试失败: ${msg}`, 'danger')
+  }
+  finally {
+    offlineTesting.value = false
   }
 }
 </script>
@@ -527,6 +528,7 @@ async function handleSaveOffline() {
           <!-- Switches Grid -->
           <div class="grid grid-cols-2 gap-3 md:grid-cols-3">
             <BaseSwitch v-model="localSettings.automation.farm" label="自动种植收获" />
+            <BaseSwitch v-model="localSettings.automation.farm_manage" label="自动打理农场" />
             <BaseSwitch v-model="localSettings.automation.task" label="自动做任务" />
             <BaseSwitch v-model="localSettings.automation.sell" label="自动卖果实" />
             <BaseSwitch v-model="localSettings.automation.friend" label="自动好友互动" />
@@ -540,13 +542,15 @@ async function handleSaveOffline() {
             <BaseSwitch v-model="localSettings.automation.open_server_gift" label="自动开服红包" />
             <BaseSwitch v-model="localSettings.automation.fertilizer_gift" label="自动填充化肥" />
             <BaseSwitch v-model="localSettings.automation.fertilizer_buy" label="自动购买化肥" />
-            <!-- 自动处理自己农场的虫草水 -->
-            <BaseSwitch v-model="localSettings.automation.farm_water" label="自动浇水" />
-            <BaseSwitch v-model="localSettings.automation.farm_weed" label="自动除草" />
-            <BaseSwitch v-model="localSettings.automation.farm_bug" label="自动除虫" />
           </div>
 
           <!-- Sub-controls -->
+          <div v-if="localSettings.automation.farm_manage" class="flex flex-wrap gap-4 rounded bg-emerald-50 p-2 text-sm dark:bg-emerald-900/20">
+            <BaseSwitch v-model="localSettings.automation.farm_water" label="自动浇水" />
+            <BaseSwitch v-model="localSettings.automation.farm_bug" label="自动除虫" />
+            <BaseSwitch v-model="localSettings.automation.farm_weed" label="自动除草" />
+          </div>
+
           <div v-if="localSettings.automation.friend" class="flex flex-wrap gap-4 rounded bg-blue-50 p-2 text-sm dark:bg-blue-900/20">
             <BaseSwitch v-model="localSettings.automation.friend_steal" label="自动偷菜" />
             <BaseSwitch v-model="localSettings.automation.friend_help" label="自动帮忙" />
@@ -563,33 +567,10 @@ async function handleSaveOffline() {
               :options="fertilizerOptions"
             />
           </div>
-
-          <!-- Fertilizer Buy Reserve Tickets -->
-          <div v-if="localSettings.automation.fertilizer_buy" class="rounded bg-green-50 p-3 dark:bg-green-900/20">
-            <BaseInput
-              v-model.number="localSettings.fertilizerBuyReserveTickets"
-              label="保留点券"
-              type="number"
-              min="0"
-              placeholder="购买化肥时保留的点券数量"
-              class="w-full md:w-1/2"
-            />
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              自动购买化肥时会保留指定数量的点券不使用
-            </p>
-          </div>
         </div>
 
         <!-- Save Button -->
-        <div class="mt-auto flex flex-wrap items-center justify-end gap-2 border-t bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900/50">
-          <BaseButton
-            variant="secondary"
-            size="sm"
-            :loading="savingAll"
-            @click="saveSettingsToAllAccounts"
-          >
-            保存配置到所有账号
-          </BaseButton>
+        <div class="mt-auto flex justify-end border-t bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900/50">
           <BaseButton
             variant="primary"
             size="sm"
@@ -737,11 +718,21 @@ async function handleSaveOffline() {
         </div>
 
         <!-- Save Offline Button -->
-        <div class="mt-auto flex justify-end border-t bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900/50">
+        <div class="mt-auto flex justify-end gap-2 border-t bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-900/50">
+          <BaseButton
+            variant="secondary"
+            size="sm"
+            :loading="offlineTesting"
+            :disabled="offlineSaving"
+            @click="handleTestOffline"
+          >
+            测试通知
+          </BaseButton>
           <BaseButton
             variant="primary"
             size="sm"
             :loading="offlineSaving"
+            :disabled="offlineTesting"
             @click="handleSaveOffline"
           >
             保存下线提醒设置

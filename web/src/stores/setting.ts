@@ -4,6 +4,10 @@ import api from '@/api'
 
 export interface AutomationConfig {
   farm?: boolean
+  farm_manage?: boolean
+  farm_water?: boolean
+  farm_weed?: boolean
+  farm_bug?: boolean
   farm_push?: boolean
   land_upgrade?: boolean
   friend?: boolean
@@ -53,7 +57,6 @@ export interface SettingsState {
   automation: AutomationConfig
   ui: UIConfig
   offlineReminder: OfflineConfig
-  fertilizerBuyReserveTickets: number
 }
 
 export const useSettingStore = defineStore('setting', () => {
@@ -73,7 +76,6 @@ export const useSettingStore = defineStore('setting', () => {
       msg: '账号下线',
       offlineDeleteSec: 120,
     },
-    fertilizerBuyReserveTickets: 0,
   })
   const loading = ref(false)
 
@@ -102,7 +104,6 @@ export const useSettingStore = defineStore('setting', () => {
           msg: '账号下线',
           offlineDeleteSec: 120,
         }
-        settings.value.fertilizerBuyReserveTickets = d.fertilizerBuyReserveTickets || 0
       }
     }
     finally {
@@ -121,7 +122,6 @@ export const useSettingStore = defineStore('setting', () => {
         preferredSeedId: newSettings.preferredSeedId,
         intervals: newSettings.intervals,
         friendQuietHours: newSettings.friendQuietHours,
-        fertilizerBuyReserveTickets: newSettings.fertilizerBuyReserveTickets,
       }
 
       await api.post('/api/settings/save', settingsPayload, {
@@ -170,28 +170,5 @@ export const useSettingStore = defineStore('setting', () => {
     }
   }
 
-  async function saveSettingsToAll(newSettings: any) {
-    loading.value = true
-    try {
-      const settingsPayload = {
-        plantingStrategy: newSettings.plantingStrategy,
-        preferredSeedId: newSettings.preferredSeedId,
-        intervals: newSettings.intervals,
-        friendQuietHours: newSettings.friendQuietHours,
-        fertilizerBuyReserveTickets: newSettings.fertilizerBuyReserveTickets,
-        automation: newSettings.automation,
-      }
-
-      const { data } = await api.post('/api/settings/save-all', settingsPayload)
-      if (data && data.ok) {
-        return { ok: true, message: data.message, count: data.count, total: data.total }
-      }
-      return { ok: false, error: data.error || '保存失败' }
-    }
-    finally {
-      loading.value = false
-    }
-  }
-
-  return { settings, loading, fetchSettings, saveSettings, saveSettingsToAll, saveOfflineConfig, changeAdminPassword }
+  return { settings, loading, fetchSettings, saveSettings, saveOfflineConfig, changeAdminPassword }
 })

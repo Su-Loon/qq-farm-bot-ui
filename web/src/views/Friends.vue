@@ -182,19 +182,9 @@ function handleFriendAvatarError(friend: any) {
         <div class="i-carbon-user-multiple" />
         好友
       </h2>
-      <div class="flex items-center gap-4">
-        <button
-          class="flex items-center gap-1 rounded bg-gray-100 px-3 py-1.5 text-sm text-gray-700 transition dark:bg-gray-800 hover:bg-gray-200 dark:text-gray-300 dark:hover:bg-gray-700"
-          :disabled="loading"
-          @click="loadFriends"
-        >
-          <div class="i-carbon-renew" />
-          刷新
-        </button>
-        <div v-if="friends.length" class="text-sm text-gray-500">
-          <span v-if="searchKeyword.trim()">筛选 {{ filteredFriends.length }} / {{ friends.length }} 名好友</span>
-          <span v-else>共 {{ friends.length }} 名好友</span>
-        </div>
+      <div v-if="friends.length" class="text-sm text-gray-500">
+        <span v-if="searchKeyword.trim()">筛选 {{ filteredFriends.length }} / {{ friends.length }} 名好友</span>
+        <span v-else>共 {{ friends.length }} 名好友</span>
       </div>
     </div>
 

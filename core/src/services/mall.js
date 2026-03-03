@@ -1,13 +1,13 @@
 const { Buffer } = require('node:buffer');
 /**
  * 商城自动购买
- * 根据施肥策略自动调整购买类型
+ * 当前实现：自动购买有机化肥（item_id=1012）
  */
 
 const { sendMsgAsync, getUserState } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { toNum, log, sleep } = require('../utils/utils');
-const { getAutomation, getAccountConfigSnapshot } = require('../models/store');
+const { getDateKey, createDailyCooldown } = require('./common');
 
 const ORGANIC_FERTILIZER_MALL_GOODS_ID = 1002;
 const BUY_COOLDOWN_MS = 10 * 60 * 1000;
@@ -21,15 +21,8 @@ let buyLastSuccessAt = 0;
 let buyPausedNoGoldDateKey = '';
 let freeGiftDoneDateKey = '';
 let freeGiftLastAt = 0;
-let freeGiftLastCheckAt = 0;
 
-function getDateKey() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-}
+const freeGiftCooldown = createDailyCooldown({ cooldownMs: BUY_COOLDOWN_MS });
 
 async function getMallListBySlotType(slotType = 1) {
     const body = types.GetMallListBySlotTypeRequest.encode(types.GetMallListBySlotTypeRequest.create({
@@ -101,32 +94,24 @@ async function autoBuyOrganicFertilizerViaMall() {
     const goodsId = toNum(goods.goods_id);
     if (goodsId <= 0) return 0;
     const singlePrice = parseMallPriceValue(goods.price);
-    const ticket = Math.max(0, toNum((getUserState() || {}).ticket));
-    
-    // 获取保留点券的配置
-    const config = getAccountConfigSnapshot('');
-    const reserveTickets = Math.max(0, Number(config.fertilizerBuyReserveTickets) || 0);
-    
-    // 计算可用的点券（减去保留的点券）
-    const availableTicket = Math.max(0, ticket - reserveTickets);
-    
+    let ticket = Math.max(0, toNum((getUserState() || {}).ticket));
     let totalBought = 0;
     let perRound = BUY_PER_ROUND;
-    if (singlePrice > 0 && availableTicket > 0) {
-        perRound = Math.max(1, Math.min(BUY_PER_ROUND, Math.floor(availableTicket / singlePrice) || 1));
+    if (singlePrice > 0 && ticket > 0) {
+        perRound = Math.max(1, Math.min(BUY_PER_ROUND, Math.floor(ticket / singlePrice) || 1));
     }
 
     for (let i = 0; i < MAX_ROUNDS; i++) {
-        if (singlePrice > 0 && availableTicket > 0 && availableTicket < singlePrice) {
+        if (singlePrice > 0 && ticket > 0 && ticket < singlePrice) {
             buyPausedNoGoldDateKey = getDateKey();
             break;
         }
         try {
             await purchaseMallGoods(goodsId, perRound);
             totalBought += perRound;
-            if (singlePrice > 0 && availableTicket > 0) {
-                const currentAvailable = Math.max(0, ticket - reserveTickets - (singlePrice * totalBought));
-                if (currentAvailable < singlePrice) break;
+            if (singlePrice > 0 && ticket > 0) {
+                ticket = Math.max(0, ticket - (singlePrice * perRound));
+                if (ticket < singlePrice) break;
             }
             await sleep(120);
         } catch (e) {
@@ -144,55 +129,32 @@ async function autoBuyOrganicFertilizerViaMall() {
     return totalBought;
 }
 
-async function autoBuyFertilizer(force = false) {
+async function autoBuyOrganicFertilizer(force = false) {
     const now = Date.now();
     if (!force && now - lastBuyAt < BUY_COOLDOWN_MS) return 0;
     lastBuyAt = now;
 
     try {
-        const fertilizerConfig = getAutomation().fertilizer || 'both';
-        let totalBought = 0;
-
-        if (fertilizerConfig === 'organic' || fertilizerConfig === 'both') {
-            // 购买有机化肥
-            const organicBought = await autoBuyOrganicFertilizerViaMall();
-            totalBought += organicBought;
-            if (organicBought > 0) {
-                buyDoneDateKey = getDateKey();
-                buyLastSuccessAt = Date.now();
-                log('商城', `自动购买有机化肥 x${organicBought}`, {
-                    module: 'warehouse',
-                    event: 'fertilizer_buy',
-                    result: 'ok',
-                    type: 'organic',
-                    count: organicBought,
-                });
-            }
+        // 使用 MallService 购买链路（点券）
+        const totalBought = await autoBuyOrganicFertilizerViaMall();
+        if (totalBought > 0) {
+            buyDoneDateKey = getDateKey();
+            buyLastSuccessAt = Date.now();
+            log('商城', `自动购买有机化肥 x${totalBought}`, {
+                module: 'warehouse',
+                event: 'fertilizer_buy',
+                result: 'ok',
+                count: totalBought,
+            });
         }
-
-        // 这里可以添加购买普通化肥的逻辑
-        // 目前商城只实现了有机化肥的购买，普通化肥可能需要通过其他方式购买
-
         return totalBought;
     } catch {
         return 0;
     }
 }
 
-// 保持向后兼容
-async function autoBuyOrganicFertilizer(force = false) {
-    return autoBuyFertilizer(force);
-}
-
-function isDoneTodayByKey(key) {
-    return String(key || '') === getDateKey();
-}
-
 async function buyFreeGifts(force = false) {
-    const now = Date.now();
-    if (!force && isDoneTodayByKey(freeGiftDoneDateKey)) return 0;
-    if (!force && now - freeGiftLastCheckAt < BUY_COOLDOWN_MS) return 0;
-    freeGiftLastCheckAt = now;
+    if (!freeGiftCooldown.canRun(force)) return 0;
 
     try {
         const mall = await getMallListBySlotType(1);
@@ -208,6 +170,7 @@ async function buyFreeGifts(force = false) {
         const free = goods.filter((g) => !!g && g.is_free === true && Number(g.goods_id || 0) > 0);
         if (!free.length) {
             freeGiftDoneDateKey = getDateKey();
+            freeGiftCooldown.markRan();
             log('商城', '今日暂无可领取免费礼包', {
                 module: 'task',
                 event: FREE_GIFTS_DAILY_KEY,
@@ -228,6 +191,7 @@ async function buyFreeGifts(force = false) {
         freeGiftDoneDateKey = getDateKey();
         if (bought > 0) {
             freeGiftLastAt = Date.now();
+            freeGiftCooldown.markRan();
             log('商城', `自动购买免费礼包 x${bought}`, {
                 module: 'task',
                 event: FREE_GIFTS_DAILY_KEY,
@@ -235,6 +199,7 @@ async function buyFreeGifts(force = false) {
                 count: bought,
             });
         } else {
+            freeGiftCooldown.markRan();
             log('商城', '本次未成功领取免费礼包', {
                 module: 'task',
                 event: FREE_GIFTS_DAILY_KEY,
@@ -253,7 +218,6 @@ async function buyFreeGifts(force = false) {
 }
 
 module.exports = {
-    autoBuyFertilizer,
     autoBuyOrganicFertilizer,
     buyFreeGifts,
     getFertilizerBuyDailyState: () => ({
@@ -265,7 +229,7 @@ module.exports = {
     getFreeGiftDailyState: () => ({
         key: FREE_GIFTS_DAILY_KEY,
         doneToday: freeGiftDoneDateKey === getDateKey(),
-        lastCheckAt: freeGiftLastCheckAt,
+        ...freeGiftCooldown.getState(),
         lastClaimAt: freeGiftLastAt,
     }),
 };

@@ -46,7 +46,6 @@ function handleOperate(opType: string) {
     plant: '确定要一键种植吗？(根据策略配置)',
     upgrade: '确定要升级所有可升级的土地吗？(消耗金币)',
     all: '确定要一键全收吗？(包含收获、除草、种植等)',
-    remove_all: '确定要一键锄地吗？(将铲除所有已种植的农作物)',
   }
 
   confirmConfig.value = {
@@ -63,7 +62,6 @@ const operations = [
   { type: 'plant', label: '种植', icon: 'i-carbon-sprout', color: 'bg-green-600 hover:bg-green-700' },
   { type: 'upgrade', label: '升级土地', icon: 'i-carbon-upgrade', color: 'bg-purple-600 hover:bg-purple-700' },
   { type: 'all', label: '一键全收', icon: 'i-carbon-flash', color: 'bg-orange-600 hover:bg-orange-700' },
-  { type: 'remove_all', label: '一键锄地', icon: 'i-carbon-trash-can', color: 'bg-red-600 hover:bg-red-700' },
 ]
 
 async function refresh() {

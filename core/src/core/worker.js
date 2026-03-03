@@ -11,7 +11,7 @@ const { getEmailDailyState } = require('../services/email');
 const { checkFarm, startFarmCheckLoop, stopFarmCheckLoop, refreshFarmCheckLoop, getLandsDetail, getAvailableSeeds, runFarmOperation, runFertilizerByConfig } = require('../services/farm');
 const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, getFriendsList, getFriendLandsDetail, doFriendOperation } = require('../services/friend');
 const { processInviteCodes } = require('../services/invite');
-const { autoBuyFertilizer, buyFreeGifts, getFreeGiftDailyState } = require('../services/mall');
+const { autoBuyOrganicFertilizer, buyFreeGifts, getFreeGiftDailyState } = require('../services/mall');
 const { performDailyMonthCardGift, getMonthCardDailyState } = require('../services/monthcard');
 const { performDailyOpenServerGift, getOpenServerDailyState } = require('../services/openserver');
 const { performDailyVipGift, getVipDailyState } = require('../services/qqvip');
@@ -25,6 +25,7 @@ const { sellAllFruits, getBag, getBagItems, openFertilizerGiftPacksSilently } = 
 const { connect, cleanup, getWs, getUserState, networkEvents } = require('../utils/network');
 const { loadProto } = require('../utils/proto');
 const { setLogHook, log, toNum } = require('../utils/utils');
+const { validateAutomation, validateIntervals, validateQuietHours } = require('../services/config-validator');
 
 if (parentPort && workerData && workerData.accountId && !process.env.FARM_ACCOUNT_ID) {
     process.env.FARM_ACCOUNT_ID = String(workerData.accountId);
@@ -211,6 +212,8 @@ function resetUnifiedSchedule() {
 async function runFarmTick(auto) {
     if (farmTaskRunning) return;
     farmTaskRunning = true;
+    // 立即同步状态，告知前端开始巡查
+    syncStatus();
     const farmMs = randomIntervalMs(
         CONFIG.farmCheckIntervalMin || CONFIG.farmCheckInterval || 2000,
         CONFIG.farmCheckIntervalMax || CONFIG.farmCheckInterval || 2000
@@ -220,18 +223,22 @@ async function runFarmTick(auto) {
         if (auto.task) await checkAndClaimTasks();
         if (auto.email) await checkAndClaimEmails();
         if (auto.fertilizer_gift) await openFertilizerGiftPacksSilently();
-        if (auto.fertilizer_buy) await autoBuyFertilizer();
+        if (auto.fertilizer_buy) await autoBuyOrganicFertilizer();
     } catch (e) {
         log('系统', `农场调度执行失败: ${e.message}`, { module: 'system', event: 'farm_tick', result: 'error' });
     } finally {
         nextFarmRunAt = Date.now() + farmMs;
         farmTaskRunning = false;
+        // 完成后立即同步状态
+        syncStatus();
     }
 }
 
 async function runFriendTick(auto) {
     if (friendTaskRunning) return;
     friendTaskRunning = true;
+    // 立即同步状态，告知前端开始巡查
+    syncStatus();
     const friendMs = randomIntervalMs(
         CONFIG.friendCheckIntervalMin || CONFIG.friendCheckInterval || 10000,
         CONFIG.friendCheckIntervalMax || CONFIG.friendCheckInterval || 10000
@@ -243,6 +250,8 @@ async function runFriendTick(auto) {
     } finally {
         nextFriendRunAt = Date.now() + friendMs;
         friendTaskRunning = false;
+        // 完成后立即同步状态
+        syncStatus();
     }
 }
 
@@ -297,8 +306,27 @@ function stopUnifiedScheduler() {
 
 function applyRuntimeConfig(snapshot, syncNow = false) {
     const prevAuto = getAutomation();
-    applyConfigSnapshot(snapshot || {}, { persist: false });
-    const rev = Number((snapshot || {}).__revision || 0);
+    
+    // 配置校验
+    const validatedSnapshot = snapshot;
+    if (snapshot && typeof snapshot === 'object') {
+        try {
+            if (snapshot.automation) {
+                snapshot.automation = validateAutomation(snapshot.automation);
+            }
+            if (snapshot.intervals) {
+                snapshot.intervals = validateIntervals(snapshot.intervals);
+            }
+            if (snapshot.friendQuietHours) {
+                snapshot.friendQuietHours = validateQuietHours(snapshot.friendQuietHours);
+            }
+        } catch (e) {
+            log('配置', `配置校验失败: ${e.message}`, { module: 'system', event: 'config_validate' });
+        }
+    }
+    
+    applyConfigSnapshot(validatedSnapshot || {}, { persist: false });
+    const rev = Number((validatedSnapshot || {}).__revision || 0);
     if (rev > 0) appliedConfigRevision = rev;
 
     // 优先使用本次下发的间隔，避免 worker 内部 store 漂移导致回退默认值
@@ -545,6 +573,9 @@ async function handleApiCall(msg) {
             case 'getFriends':
                 result = await getFriendsList();
                 break;
+            case 'getFriendBlacklist':
+                result = require('../models/store').getFriendBlacklist();
+                break;
             case 'getFriendLands':
                 result = await getFriendLandsDetail(args[0]);
                 break;
@@ -564,7 +595,7 @@ async function handleApiCall(msg) {
                 break;
             }
             case 'doFarmOp':
-                result = await runFarmOperation(args[0]); // opType
+                result = await runFarmOperation(args[0], { automated: false }); // opType
                 break;
             case 'getAnalytics': {
                 const { getPlantRankings } = require('../services/analytics');
@@ -676,9 +707,18 @@ function syncStatus() {
     const limits = require('../services/friend').getOperationLimits();
     const fullStats = require('../services/stats').getStats(statusData, userState, connected, limits);
     const nowMs = Date.now();
+    const farmRemainSec = Math.max(0, Math.ceil((Number(nextFarmRunAt || 0) - nowMs) / 1000));
+    const friendRemainSec = Math.max(0, Math.ceil((Number(nextFriendRunAt || 0) - nowMs) / 1000));
+    // 等待巡查：倒计时为0且不在巡查中
+    const farmWaiting = farmRemainSec <= 0 && !farmTaskRunning;
+    const friendWaiting = friendRemainSec <= 0 && !friendTaskRunning;
     fullStats.nextChecks = {
-        farmRemainSec: Math.max(0, Math.ceil((Number(nextFarmRunAt || 0) - nowMs) / 1000)),
-        friendRemainSec: Math.max(0, Math.ceil((Number(nextFriendRunAt || 0) - nowMs) / 1000)),
+        farmRemainSec,
+        friendRemainSec,
+        farmInspecting: farmTaskRunning,
+        friendInspecting: friendTaskRunning,
+        farmWaiting,
+        friendWaiting,
     };
 
     fullStats.automation = getAutomation();
