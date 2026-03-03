@@ -221,14 +221,14 @@ function formatLogTime(timestamp: number) {
     <!-- Tab Navigation -->
     <div class="mb-4 flex space-x-2">
       <button
-        class="px-4 py-2 rounded-lg transition"
+        class="rounded-lg px-4 py-2 transition"
         :class="activeTab === 'friends' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'"
         @click="activeTab = 'friends'"
       >
         好友列表
       </button>
       <button
-        class="px-4 py-2 rounded-lg transition"
+        class="rounded-lg px-4 py-2 transition"
         :class="activeTab === 'logs' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'"
         @click="activeTab = 'logs'"
       >
@@ -408,9 +408,13 @@ function formatLogTime(timestamp: number) {
           class="overflow-hidden rounded-lg bg-white shadow dark:bg-gray-800"
         >
           <div class="p-4">
-            <div class="flex justify-between items-center mb-2">
-              <div class="font-bold">{{ log.friendName }}</div>
-              <div class="text-sm text-gray-500">{{ formatLogTime(log.timestamp) }}</div>
+            <div class="mb-2 flex items-center justify-between">
+              <div class="font-bold">
+                {{ log.friendName }}
+              </div>
+              <div class="text-sm text-gray-500">
+                {{ formatLogTime(log.timestamp) }}
+              </div>
             </div>
             <div class="text-sm">
               <span class="text-gray-600 dark:text-gray-400">操作: </span>

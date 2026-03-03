@@ -79,6 +79,45 @@ const localSettings = ref({
   },
 })
 
+// 监听巡查间隔值，确保不超过 86400 且不小于 1
+watchEffect(() => {
+  // 农场巡查最小
+  const farmMin = Number(localSettings.value.intervals.farmMin)
+  if (Number.isNaN(farmMin) || farmMin < 1) {
+    localSettings.value.intervals.farmMin = 1
+  }
+  else if (farmMin > 86400) {
+    localSettings.value.intervals.farmMin = 86400
+  }
+
+  // 农场巡查最大
+  const farmMax = Number(localSettings.value.intervals.farmMax)
+  if (Number.isNaN(farmMax) || farmMax < 1) {
+    localSettings.value.intervals.farmMax = 1
+  }
+  else if (farmMax > 86400) {
+    localSettings.value.intervals.farmMax = 86400
+  }
+
+  // 好友巡查最小
+  const friendMin = Number(localSettings.value.intervals.friendMin)
+  if (Number.isNaN(friendMin) || friendMin < 1) {
+    localSettings.value.intervals.friendMin = 1
+  }
+  else if (friendMin > 86400) {
+    localSettings.value.intervals.friendMin = 86400
+  }
+
+  // 好友巡查最大
+  const friendMax = Number(localSettings.value.intervals.friendMax)
+  if (Number.isNaN(friendMax) || friendMax < 1) {
+    localSettings.value.intervals.friendMax = 1
+  }
+  else if (friendMax > 86400) {
+    localSettings.value.intervals.friendMax = 86400
+  }
+})
+
 const localOffline = ref({
   channel: 'webhook',
   reloginUrlMode: 'none',
@@ -471,24 +510,28 @@ async function handleTestOffline() {
               label="农场巡查最小 (秒)"
               type="number"
               min="1"
+              max="86400"
             />
             <BaseInput
               v-model.number="localSettings.intervals.farmMax"
               label="农场巡查最大 (秒)"
               type="number"
               min="1"
+              max="86400"
             />
             <BaseInput
               v-model.number="localSettings.intervals.friendMin"
               label="好友巡查最小 (秒)"
               type="number"
               min="1"
+              max="86400"
             />
             <BaseInput
               v-model.number="localSettings.intervals.friendMax"
               label="好友巡查最大 (秒)"
               type="number"
               min="1"
+              max="86400"
             />
           </div>
 

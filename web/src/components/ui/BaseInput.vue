@@ -7,6 +7,8 @@ const props = defineProps<{
   label?: string
   disabled?: boolean
   clearable?: boolean
+  min?: string | number
+  max?: string | number
 }>()
 const emit = defineEmits<{
   (e: 'clear'): void
@@ -32,6 +34,8 @@ const inputType = computed(() => {
         :type="inputType"
         :placeholder="placeholder"
         :disabled="disabled"
+        :min="min"
+        :max="max"
         class="base-input w-full border border-gray-200 rounded-lg bg-white px-3 py-2 outline-none transition-all duration-200 dark:border-gray-700 focus:border-green-500 dark:bg-gray-800 disabled:bg-gray-50 dark:text-white disabled:text-gray-400 focus:ring-2 focus:ring-green-500/20 dark:focus:border-green-500 dark:disabled:bg-gray-800/50"
         :class="{ 'pr-10': type === 'password' || (clearable && model) }"
       >

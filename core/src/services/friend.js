@@ -622,6 +622,7 @@ async function doFriendOperation(friendGid, opType) {
     if (!gid) return { ok: false, message: '无效好友ID', opType };
 
     let enterReply;
+    const actions = [];
     try {
         enterReply = await enterFriendFarm(gid);
     } catch (e) {
@@ -637,7 +638,6 @@ async function doFriendOperation(friendGid, opType) {
         const state = getUserState();
         const status = analyzeFriendLands(lands, state.gid, '');
         let count = 0;
-        const actions = [];
 
         if (opType === 'steal') {
             if (!status.stealable.length) return { ok: true, opType, count: 0, message: '没有可偷取土地' };

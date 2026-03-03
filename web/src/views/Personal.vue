@@ -2,8 +2,8 @@
 import { ref } from 'vue'
 import BagPanel from '@/components/BagPanel.vue'
 import FarmPanel from '@/components/FarmPanel.vue'
-import TaskPanel from '@/components/TaskPanel.vue'
 import NoStealPlantsPanel from '@/components/NoStealPlantsPanel.vue'
+import TaskPanel from '@/components/TaskPanel.vue'
 
 const currentTab = ref<'farm' | 'bag' | 'task' | 'no-steal'>('farm')
 </script>

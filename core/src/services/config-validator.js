@@ -263,7 +263,7 @@ class ConfigValidator {
                 path,
                 message: `值必须小于等于 ${schema.max}`,
             });
-            return schema.default;
+            return schema.max; // 超过最大值时返回最大值，而不是默认值
         }
 
         // 模式校验
