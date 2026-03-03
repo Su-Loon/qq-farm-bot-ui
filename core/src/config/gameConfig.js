@@ -321,6 +321,9 @@ module.exports = {
     loadConfigs,
     getAllPlants,
     getAllSeeds,
+    // 内部状态（用于调试）
+    plantMap,
+    seedToPlant,
     // 等级经验
     getLevelExpTable,
     getLevelExpProgress,

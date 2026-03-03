@@ -57,6 +57,7 @@ export interface SettingsState {
   automation: AutomationConfig
   ui: UIConfig
   offlineReminder: OfflineConfig
+  noStealPlants?: number[]
 }
 
 export const useSettingStore = defineStore('setting', () => {
@@ -76,6 +77,7 @@ export const useSettingStore = defineStore('setting', () => {
       msg: '账号下线',
       offlineDeleteSec: 120,
     },
+    noStealPlants: [],
   })
   const loading = ref(false)
 
@@ -95,6 +97,7 @@ export const useSettingStore = defineStore('setting', () => {
         settings.value.friendQuietHours = d.friendQuietHours || { enabled: false, start: '23:00', end: '07:00' }
         settings.value.automation = d.automation || {}
         settings.value.ui = d.ui || {}
+        settings.value.noStealPlants = d.noStealPlants || []
         settings.value.offlineReminder = d.offlineReminder || {
           channel: 'webhook',
           reloginUrlMode: 'none',
@@ -122,6 +125,7 @@ export const useSettingStore = defineStore('setting', () => {
         preferredSeedId: newSettings.preferredSeedId,
         intervals: newSettings.intervals,
         friendQuietHours: newSettings.friendQuietHours,
+        noStealPlants: newSettings.noStealPlants,
       }
 
       await api.post('/api/settings/save', settingsPayload, {

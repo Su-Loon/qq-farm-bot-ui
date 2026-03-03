@@ -5,7 +5,9 @@
 const { CONFIG, PlantPhase, PHASE_NAMES } = require('../config/config');
 const { getPlantName, getPlantById, getSeedImageBySeedId } = require('../config/gameConfig');
 const { parentPort } = require('node:worker_threads');
-const { isAutomationOn, getFriendQuietHours, getFriendBlacklist } = require('../models/store');
+const { isAutomationOn, getFriendQuietHours, getFriendBlacklist, getAccountConfigSnapshot } = require('../models/store');
+const { getFriendEarliestMaturity, updateFriendMaturity } = require('../models/friend-maturity');
+const { recordFriendLog } = require('../models/friend-log');
 const { sendMsgAsync, getUserState, networkEvents } = require('../utils/network');
 const { types } = require('../utils/proto');
 const { toLong, toNum, toTimeSec, getServerTimeSec, log, logWarn, sleep } = require('../utils/utils');
@@ -440,10 +442,13 @@ function analyzeFriendLands(lands, myGid, friendName = '') {
 
         if (phaseVal === PlantPhase.MATURE) {
             if (plant.stealable) {
-                result.stealable.push(id);
                 const plantId = toNum(plant.id);
-                const plantName = getPlantName(plantId) || plant.name || '未知';
-                result.stealableInfo.push({ landId: id, plantId, name: plantName });
+                const noStealPlants = getAccountConfigSnapshot().noStealPlants || [];
+                if (!noStealPlants.includes(plantId)) {
+                    result.stealable.push(id);
+                    const plantName = getPlantName(plantId) || plant.name || '未知';
+                    result.stealableInfo.push({ landId: id, plantId, name: plantName });
+                }
             }
             continue;
         }
@@ -632,6 +637,7 @@ async function doFriendOperation(friendGid, opType) {
         const state = getUserState();
         const status = analyzeFriendLands(lands, state.gid, '');
         let count = 0;
+        const actions = [];
 
         if (opType === 'steal') {
             if (!status.stealable.length) return { ok: true, opType, count: 0, message: '没有可偷取土地' };
@@ -642,6 +648,7 @@ async function doFriendOperation(friendGid, opType) {
             count = await runBatchWithFallback(target, (ids) => stealHarvest(gid, ids), (ids) => stealHarvest(gid, ids));
             if (count > 0) {
                 recordOperation('steal', count);
+                actions.push(`偷${count}`);
                 // 手动偷取成功后立即尝试出售一次果实
                 try {
                     await sellAllFruits();
@@ -662,7 +669,10 @@ async function doFriendOperation(friendGid, opType) {
             const precheck = await checkCanOperateRemote(gid, 10007);
             if (!precheck.canOperate) return { ok: true, opType, count: 0, message: '今日浇水次数已用完' };
             count = await runBatchWithFallback(status.needWater, (ids) => helpWater(gid, ids), (ids) => helpWater(gid, ids));
-            if (count > 0) recordOperation('helpWater', count);
+            if (count > 0) {
+                recordOperation('helpWater', count);
+                actions.push(`浇水${count}`);
+            }
             return { ok: true, opType, count, message: `浇水完成 ${count} 块` };
         }
 
@@ -671,7 +681,10 @@ async function doFriendOperation(friendGid, opType) {
             const precheck = await checkCanOperateRemote(gid, 10005);
             if (!precheck.canOperate) return { ok: true, opType, count: 0, message: '今日除草次数已用完' };
             count = await runBatchWithFallback(status.needWeed, (ids) => helpWeed(gid, ids), (ids) => helpWeed(gid, ids));
-            if (count > 0) recordOperation('helpWeed', count);
+            if (count > 0) {
+                recordOperation('helpWeed', count);
+                actions.push(`除草${count}`);
+            }
             return { ok: true, opType, count, message: `除草完成 ${count} 块` };
         }
 
@@ -680,7 +693,10 @@ async function doFriendOperation(friendGid, opType) {
             const precheck = await checkCanOperateRemote(gid, 10006);
             if (!precheck.canOperate) return { ok: true, opType, count: 0, message: '今日除虫次数已用完' };
             count = await runBatchWithFallback(status.needBug, (ids) => helpInsecticide(gid, ids), (ids) => helpInsecticide(gid, ids));
-            if (count > 0) recordOperation('helpBug', count);
+            if (count > 0) {
+                recordOperation('helpBug', count);
+                actions.push(`除虫${count}`);
+            }
             return { ok: true, opType, count, message: `除虫完成 ${count} 块` };
         }
 
@@ -697,13 +713,19 @@ async function doFriendOperation(friendGid, opType) {
                 const bugRet = await putInsectsDetailed(gid, status.canPutBug);
                 bugCount = bugRet.ok;
                 failDetails = failDetails.concat((bugRet.failed || []).map(f => `放虫#${f.landId}:${f.reason}`));
-                if (bugCount > 0) recordOperation('bug', bugCount);
+                if (bugCount > 0) {
+                    recordOperation('bug', bugCount);
+                    actions.push(`放虫${bugCount}`);
+                }
             }
             if (status.canPutWeed.length) {
                 const weedRet = await putWeedsDetailed(gid, status.canPutWeed);
                 weedCount = weedRet.ok;
                 failDetails = failDetails.concat((weedRet.failed || []).map(f => `放草#${f.landId}:${f.reason}`));
-                if (weedCount > 0) recordOperation('weed', weedCount);
+                if (weedCount > 0) {
+                    recordOperation('weed', weedCount);
+                    actions.push(`放草${weedCount}`);
+                }
             }
             count = bugCount + weedCount;
             if (count <= 0) {
@@ -724,7 +746,14 @@ async function doFriendOperation(friendGid, opType) {
     } catch (e) {
         return { ok: false, opType, count: 0, message: e.message || '操作失败' };
     } finally {
-        try { await leaveFriendFarm(gid); } catch { /* ignore */ }
+        try { 
+            await leaveFriendFarm(gid); 
+            // 记录好友访问日志
+            if (actions.length > 0) {
+                const friendName = `GID:${gid}`;
+                recordFriendLog(gid, friendName, actions);
+            }
+        } catch { /* ignore */ }
     }
 }
 
@@ -751,6 +780,27 @@ async function visitFriend(friend, totalActions, myGid) {
     if (lands.length === 0) {
         await leaveFriendFarm(gid);
         return;
+    }
+
+    // 计算好友最早成熟时间
+    const nowSec = getServerTimeSec();
+    let earliestMaturity = Infinity;
+    for (const land of lands) {
+        const plant = land.plant;
+        if (!plant || !plant.phases || plant.phases.length === 0) continue;
+        const maturePhase = plant.phases.find((p) => p && toNum(p.phase) === PlantPhase.MATURE);
+        if (maturePhase) {
+            const matureBegin = toTimeSec(maturePhase.begin_time);
+            if (matureBegin > nowSec && matureBegin < earliestMaturity) {
+                earliestMaturity = matureBegin;
+            }
+        }
+    }
+    // 更新好友成熟时间记录
+    if (earliestMaturity !== Infinity) {
+        updateFriendMaturity(gid, earliestMaturity);
+    } else {
+        updateFriendMaturity(gid, 0);
     }
 
     const status = analyzeFriendLands(lands, myGid, name);
@@ -855,6 +905,8 @@ async function visitFriend(friend, totalActions, myGid) {
         log('好友', `${name}: ${actions.join('/')}`, {
             module: 'friend', event: 'visit_friend', result: 'ok', friendName: name, friendGid: gid, actions
         });
+        // 记录好友访问日志
+        recordFriendLog(gid, name, actions);
     }
 
     await leaveFriendFarm(gid);
@@ -892,6 +944,7 @@ async function checkFriends() {
         const priorityFriends = [];
         const otherFriends = [];
         const visitedGids = new Set();
+        const nowSec = getServerTimeSec();
 
         for (const f of friends) {
             const gid = toNum(f.gid);
@@ -907,17 +960,24 @@ async function checkFriends() {
             const weedNum = p ? toNum(p.weed_num) : 0;
             const insectNum = p ? toNum(p.insect_num) : 0;
             
+            // 检查好友是否有可操作的内容或已到成熟时间
             const hasAction = stealNum > 0 || dryNum > 0 || weedNum > 0 || insectNum > 0;
+            const earliestMaturity = getFriendEarliestMaturity(gid);
+            const isMature = earliestMaturity > 0 && earliestMaturity <= nowSec;
 
-            if (hasAction) {
+            if (hasAction || isMature) {
                 priorityFriends.push({ 
                     gid, name, isPriority: true,
                     stealNum, dryNum, weedNum, insectNum // 保存状态用于排序
                 });
                 visitedGids.add(gid);
             } else if ((autoBadEnabled && canPutBugOrWeed) || helpEnabled || stealEnabled) {
-                otherFriends.push({ gid, name, isPriority: false });
-                visitedGids.add(gid);
+                // 只有当没有成熟时间记录时才添加到其他好友列表
+                if (earliestMaturity === 0) {
+                    otherFriends.push({ gid, name, isPriority: false });
+                    visitedGids.add(gid);
+                }
+                // 否则，跳过未到成熟时间的好友
             }
         }
         

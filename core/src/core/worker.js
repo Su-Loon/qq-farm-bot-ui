@@ -511,6 +511,11 @@ async function startBot(config) {
         // 每日礼包/任务改为跨日调度，不在农场轮询内执行
         startDailyRoutineTimer();
 
+        // 登录后先巡查一遍
+        const auto = getAutomation();
+        if (auto.farm) await checkFarm().catch(() => null);
+        if (auto.friend_steal || auto.friend_help || auto.friend_bad) await checkFriends().catch(() => null);
+
         // 立即发送一次状态
         syncStatus();
     };
@@ -607,6 +612,9 @@ async function handleApiCall(msg) {
                 break;
             case 'getSchedulers':
                 result = getSchedulerRegistrySnapshot();
+                break;
+            case 'getFriendLogs':
+                result = require('../models/friend-log').getFriendLogs();
                 break;
             default:
                 error = 'Unknown method';

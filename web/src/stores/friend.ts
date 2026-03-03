@@ -8,6 +8,8 @@ export const useFriendStore = defineStore('friend', () => {
   const friendLands = ref<Record<string, any[]>>({})
   const friendLandsLoading = ref<Record<string, boolean>>({})
   const blacklist = ref<number[]>([])
+  const friendLogs = ref<any[]>([])
+  const friendLogsLoading = ref(false)
 
   function buildPlantSummaryFromDetail(lands: any[], summary: any) {
     const stealNumFromSummary = Array.isArray(summary?.stealable) ? summary.stealable.length : null
@@ -123,6 +125,23 @@ export const useFriendStore = defineStore('friend', () => {
     }
   }
 
+  async function fetchFriendLogs(accountId: string) {
+    if (!accountId)
+      return
+    friendLogsLoading.value = true
+    try {
+      const res = await api.get('/api/friend-logs', {
+        headers: { 'x-account-id': accountId },
+      })
+      if (res.data.ok) {
+        friendLogs.value = res.data.data || []
+      }
+    }
+    finally {
+      friendLogsLoading.value = false
+    }
+  }
+
   async function operate(accountId: string, friendId: string, opType: string) {
     if (!accountId || !friendId)
       return
@@ -140,10 +159,13 @@ export const useFriendStore = defineStore('friend', () => {
     friendLands,
     friendLandsLoading,
     blacklist,
+    friendLogs,
+    friendLogsLoading,
     fetchFriends,
     fetchBlacklist,
     toggleBlacklist,
     fetchFriendLands,
+    fetchFriendLogs,
     operate,
   }
 })

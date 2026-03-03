@@ -138,7 +138,7 @@ function startAdminServer(dataProvider) {
     });
 
     app.use('/api', (req, res, next) => {
-        if (req.path === '/login' || req.path === '/qr/create' || req.path === '/qr/check' || req.path === '/auth/validate') return next();
+        if (req.path === '/login' || req.path === '/qr/create' || req.path === '/qr/check' || req.path === '/auth/validate' || req.path === '/game-config/plants') return next();
         return authRequired(req, res, next);
     });
 
@@ -165,6 +165,49 @@ function startAdminServer(dataProvider) {
 
     app.get('/api/ping', (req, res) => {
         res.json({ ok: true, data: { ok: true, uptime: process.uptime(), version } });
+    });
+
+    // API: 获取农作物信息
+    app.get('/api/game-config/plants', (req, res) => {
+        try {
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const { getAllPlants, getSeedImageBySeedId, loadConfigs, plantMap, seedToPlant } = require('../config/gameConfig');
+            const { getResourcePath } = require('../config/runtime-paths');
+            
+            // 调试：检查文件路径
+            const configDir = getResourcePath('gameConfig');
+            const plantPath = path.join(configDir, 'Plant.json');
+            console.log('Config directory:', configDir);
+            console.log('Plant.json path:', plantPath);
+            console.log('Plant.json exists:', fs.existsSync(plantPath));
+            
+            // 重新加载配置，确保数据正确
+            loadConfigs();
+            
+            // 调试：检查内部状态
+            console.log('plantMap size:', plantMap.size);
+            console.log('seedToPlant size:', seedToPlant.size);
+            
+            const plants = getAllPlants();
+            console.log('Loaded plants:', plants.length);
+            
+            const plantData = plants.map(plant => ({
+                id: plant.id,
+                name: plant.name,
+                level: plant.land_level_need || 0,
+                image: getSeedImageBySeedId(plant.seed_id),
+                seedId: plant.seed_id,
+                exp: plant.exp || 0,
+                seasons: plant.seasons || 1
+            })).filter(plant => plant.seedId > 0); // 只返回有种子ID的作物
+            
+            console.log('Filtered plants:', plantData.length);
+            res.json({ ok: true, data: plantData });
+        } catch (e) {
+            console.error('Error loading plants:', e);
+            res.status(500).json({ ok: false, error: e.message });
+        }
     });
 
     app.get('/api/auth/validate', (req, res) => {
@@ -342,6 +385,21 @@ function startAdminServer(dataProvider) {
             }
             const list = store.getFriendBlacklist ? store.getFriendBlacklist(id) : [];
             return res.json({ ok: true, data: Array.isArray(list) ? list : [] });
+        } catch (e) {
+            return handleApiError(res, e);
+        }
+    });
+
+    // API: 好友访问日志
+    app.get('/api/friend-logs', async (req, res) => {
+        const id = getAccId(req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            if (provider && typeof provider.getFriendLogs === 'function') {
+                const logs = await provider.getFriendLogs(id);
+                return res.json({ ok: true, data: Array.isArray(logs) ? logs : [] });
+            }
+            return res.json({ ok: true, data: [] });
         } catch (e) {
             return handleApiError(res, e);
         }

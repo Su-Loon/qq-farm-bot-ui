@@ -12,7 +12,7 @@ const accountStore = useAccountStore()
 const friendStore = useFriendStore()
 const statusStore = useStatusStore()
 const { currentAccountId, currentAccount } = storeToRefs(accountStore)
-const { friends, loading, friendLands, friendLandsLoading, blacklist } = storeToRefs(friendStore)
+const { friends, loading, friendLands, friendLandsLoading, blacklist, friendLogs, friendLogsLoading } = storeToRefs(friendStore)
 const { status, loading: statusLoading, realtimeConnected } = storeToRefs(statusStore)
 
 // Confirm Modal state
@@ -22,6 +22,7 @@ const confirmLoading = ref(false)
 const pendingAction = ref<(() => Promise<void>) | null>(null)
 const avatarErrorKeys = ref<Set<string>>(new Set())
 const searchKeyword = ref('')
+const activeTab = ref('friends') // 'friends' or 'logs'
 
 function confirmAction(msg: string, action: () => Promise<void>) {
   confirmMessage.value = msg
@@ -79,6 +80,22 @@ async function loadFriends() {
   }
 }
 
+async function loadFriendLogs() {
+  if (currentAccountId.value) {
+    const acc = currentAccount.value
+    if (!acc)
+      return
+
+    if (!realtimeConnected.value) {
+      await statusStore.fetchStatus(currentAccountId.value)
+    }
+
+    if (acc.running && status.value?.connection?.connected) {
+      friendStore.fetchFriendLogs(currentAccountId.value)
+    }
+  }
+}
+
 useIntervalFn(() => {
   for (const gid in friendLands.value) {
     if (friendLands.value[gid]) {
@@ -96,6 +113,15 @@ onMounted(() => {
 watch(currentAccountId, () => {
   expandedFriends.value.clear()
   loadFriends()
+  if (activeTab.value === 'logs') {
+    loadFriendLogs()
+  }
+})
+
+watch(activeTab, (newTab) => {
+  if (newTab === 'logs') {
+    loadFriendLogs()
+  }
 })
 
 function toggleFriend(friendId: string) {
@@ -173,6 +199,10 @@ function handleFriendAvatarError(friend: any) {
     return
   avatarErrorKeys.value.add(key)
 }
+
+function formatLogTime(timestamp: number) {
+  return new Date(timestamp).toLocaleString('zh-CN')
+}
 </script>
 
 <template>
@@ -182,143 +212,210 @@ function handleFriendAvatarError(friend: any) {
         <div class="i-carbon-user-multiple" />
         好友
       </h2>
-      <div v-if="friends.length" class="text-sm text-gray-500">
+      <div v-if="friends.length && activeTab === 'friends'" class="text-sm text-gray-500">
         <span v-if="searchKeyword.trim()">筛选 {{ filteredFriends.length }} / {{ friends.length }} 名好友</span>
         <span v-else>共 {{ friends.length }} 名好友</span>
       </div>
     </div>
 
-    <div v-if="status?.connection?.connected && friends.length" class="mb-4">
-      <div class="relative">
-        <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
-          <div class="i-carbon-search" />
-        </div>
-        <input
-          v-model="searchKeyword"
-          type="text"
-          class="w-full border border-gray-200 rounded-lg bg-white py-2 pl-10 pr-3 text-sm outline-none transition dark:border-gray-700 focus:border-blue-400 dark:bg-gray-800"
-          placeholder="搜索好友昵称 / GID / UIN"
-        >
-      </div>
-    </div>
-
-    <div v-if="loading || statusLoading" class="flex justify-center py-12">
-      <div class="i-svg-spinners-90-ring-with-bg text-4xl text-blue-500" />
-    </div>
-
-    <div v-else-if="!currentAccountId" class="rounded-lg bg-white p-8 text-center text-gray-500 shadow dark:bg-gray-800">
-      请选择账号后查看好友
-    </div>
-
-    <div v-else-if="!status?.connection?.connected" class="flex flex-col items-center justify-center gap-4 rounded-lg bg-white p-12 text-center text-gray-500 shadow dark:bg-gray-800">
-      <div class="i-carbon-connection-signal-off text-4xl text-gray-400" />
-      <div>
-        <div class="text-lg text-gray-700 font-medium dark:text-gray-300">
-          账号未登录
-        </div>
-        <div class="mt-1 text-sm text-gray-400">
-          请先运行账号或检查网络连接
-        </div>
-      </div>
-    </div>
-
-    <div v-else-if="friends.length === 0" class="rounded-lg bg-white p-8 text-center text-gray-500 shadow dark:bg-gray-800">
-      暂无好友或数据加载失败
-    </div>
-
-    <div v-else-if="filteredFriends.length === 0" class="rounded-lg bg-white p-8 text-center text-gray-500 shadow dark:bg-gray-800">
-      未找到匹配的好友
-    </div>
-
-    <div v-else class="space-y-4">
-      <div
-        v-for="friend in filteredFriends"
-        :key="friend.gid"
-        class="overflow-hidden rounded-lg bg-white shadow dark:bg-gray-800"
+    <!-- Tab Navigation -->
+    <div class="mb-4 flex space-x-2">
+      <button
+        class="px-4 py-2 rounded-lg transition"
+        :class="activeTab === 'friends' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'"
+        @click="activeTab = 'friends'"
       >
-        <div
-          class="flex flex-col cursor-pointer justify-between gap-4 p-4 transition sm:flex-row sm:items-center hover:bg-gray-50 dark:hover:bg-gray-700/50"
-          :class="blacklist.includes(Number(friend.gid)) ? 'opacity-50' : ''"
-          @click="toggleFriend(friend.gid)"
-        >
-          <div class="flex items-center gap-3">
-            <div class="h-10 w-10 flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-200 ring-1 ring-gray-100 dark:bg-gray-600 dark:ring-gray-700">
-              <img
-                v-if="canShowFriendAvatar(friend)"
-                :src="getFriendAvatar(friend)"
-                class="h-full w-full object-cover"
-                loading="lazy"
-                @error="handleFriendAvatarError(friend)"
-              >
-              <div v-else class="i-carbon-user text-gray-400" />
-            </div>
-            <div>
-              <div class="flex items-center gap-2 font-bold">
-                {{ friend.name }}
-                <span v-if="blacklist.includes(Number(friend.gid))" class="rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-400">已屏蔽</span>
-              </div>
-              <div class="text-sm" :class="getFriendStatusText(friend) !== '无操作' ? 'text-green-500 font-medium' : 'text-gray-400'">
-                {{ getFriendStatusText(friend) }}
-              </div>
-            </div>
-          </div>
+        好友列表
+      </button>
+      <button
+        class="px-4 py-2 rounded-lg transition"
+        :class="activeTab === 'logs' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'"
+        @click="activeTab = 'logs'"
+      >
+        访问日志
+      </button>
+    </div>
 
-          <div class="flex flex-wrap gap-2">
-            <button
-              class="rounded bg-blue-100 px-3 py-2 text-sm text-blue-700 transition hover:bg-blue-200"
-              @click="handleOp(friend.gid, 'steal', $event)"
-            >
-              偷取
-            </button>
-            <button
-              class="rounded bg-cyan-100 px-3 py-2 text-sm text-cyan-700 transition hover:bg-cyan-200"
-              @click="handleOp(friend.gid, 'water', $event)"
-            >
-              浇水
-            </button>
-            <button
-              class="rounded bg-green-100 px-3 py-2 text-sm text-green-700 transition hover:bg-green-200"
-              @click="handleOp(friend.gid, 'weed', $event)"
-            >
-              除草
-            </button>
-            <button
-              class="rounded bg-orange-100 px-3 py-2 text-sm text-orange-700 transition hover:bg-orange-200"
-              @click="handleOp(friend.gid, 'bug', $event)"
-            >
-              除虫
-            </button>
-            <button
-              class="rounded bg-red-100 px-3 py-2 text-sm text-red-700 transition hover:bg-red-200"
-              @click="handleOp(friend.gid, 'bad', $event)"
-            >
-              捣乱
-            </button>
-            <button
-              class="rounded px-3 py-2 text-sm transition"
-              :class="blacklist.includes(Number(friend.gid))
-                ? 'bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
-                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700/50 dark:text-gray-400 dark:hover:bg-gray-700'"
-              @click="handleToggleBlacklist(friend, $event)"
-            >
-              {{ blacklist.includes(Number(friend.gid)) ? '移出黑名单' : '加入黑名单' }}
-            </button>
+    <!-- Friends Tab -->
+    <div v-if="activeTab === 'friends'">
+      <div v-if="status?.connection?.connected && friends.length" class="mb-4">
+        <div class="relative">
+          <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+            <div class="i-carbon-search" />
+          </div>
+          <input
+            v-model="searchKeyword"
+            type="text"
+            class="w-full border border-gray-200 rounded-lg bg-white py-2 pl-10 pr-3 text-sm outline-none transition dark:border-gray-700 focus:border-blue-400 dark:bg-gray-800"
+            placeholder="搜索好友昵称 / GID / UIN"
+          >
+        </div>
+      </div>
+
+      <div v-if="loading || statusLoading" class="flex justify-center py-12">
+        <div class="i-svg-spinners-90-ring-with-bg text-4xl text-blue-500" />
+      </div>
+
+      <div v-else-if="!currentAccountId" class="rounded-lg bg-white p-8 text-center text-gray-500 shadow dark:bg-gray-800">
+        请选择账号后查看好友
+      </div>
+
+      <div v-else-if="!status?.connection?.connected" class="flex flex-col items-center justify-center gap-4 rounded-lg bg-white p-12 text-center text-gray-500 shadow dark:bg-gray-800">
+        <div class="i-carbon-connection-signal-off text-4xl text-gray-400" />
+        <div>
+          <div class="text-lg text-gray-700 font-medium dark:text-gray-300">
+            账号未登录
+          </div>
+          <div class="mt-1 text-sm text-gray-400">
+            请先运行账号或检查网络连接
           </div>
         </div>
+      </div>
 
-        <div v-if="expandedFriends.has(friend.gid)" class="border-t bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/50">
-          <div v-if="friendLandsLoading[friend.gid]" class="flex justify-center py-4">
-            <div class="i-svg-spinners-90-ring-with-bg text-2xl text-blue-500" />
+      <div v-else-if="friends.length === 0" class="rounded-lg bg-white p-8 text-center text-gray-500 shadow dark:bg-gray-800">
+        暂无好友或数据加载失败
+      </div>
+
+      <div v-else-if="filteredFriends.length === 0" class="rounded-lg bg-white p-8 text-center text-gray-500 shadow dark:bg-gray-800">
+        未找到匹配的好友
+      </div>
+
+      <div v-else class="space-y-4">
+        <div
+          v-for="friend in filteredFriends"
+          :key="friend.gid"
+          class="overflow-hidden rounded-lg bg-white shadow dark:bg-gray-800"
+        >
+          <div
+            class="flex flex-col cursor-pointer justify-between gap-4 p-4 transition sm:flex-row sm:items-center hover:bg-gray-50 dark:hover:bg-gray-700/50"
+            :class="blacklist.includes(Number(friend.gid)) ? 'opacity-50' : ''"
+            @click="toggleFriend(friend.gid)"
+          >
+            <div class="flex items-center gap-3">
+              <div class="h-10 w-10 flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-gray-200 ring-1 ring-gray-100 dark:bg-gray-600 dark:ring-gray-700">
+                <img
+                  v-if="canShowFriendAvatar(friend)"
+                  :src="getFriendAvatar(friend)"
+                  class="h-full w-full object-cover"
+                  loading="lazy"
+                  @error="handleFriendAvatarError(friend)"
+                >
+                <div v-else class="i-carbon-user text-gray-400" />
+              </div>
+              <div>
+                <div class="flex items-center gap-2 font-bold">
+                  {{ friend.name }}
+                  <span v-if="blacklist.includes(Number(friend.gid))" class="rounded bg-gray-200 px-1.5 py-0.5 text-xs text-gray-500 dark:bg-gray-700 dark:text-gray-400">已屏蔽</span>
+                </div>
+                <div class="text-sm" :class="getFriendStatusText(friend) !== '无操作' ? 'text-green-500 font-medium' : 'text-gray-400'">
+                  {{ getFriendStatusText(friend) }}
+                </div>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+              <button
+                class="rounded bg-blue-100 px-3 py-2 text-sm text-blue-700 transition hover:bg-blue-200"
+                @click="handleOp(friend.gid, 'steal', $event)"
+              >
+                偷取
+              </button>
+              <button
+                class="rounded bg-cyan-100 px-3 py-2 text-sm text-cyan-700 transition hover:bg-cyan-200"
+                @click="handleOp(friend.gid, 'water', $event)"
+              >
+                浇水
+              </button>
+              <button
+                class="rounded bg-green-100 px-3 py-2 text-sm text-green-700 transition hover:bg-green-200"
+                @click="handleOp(friend.gid, 'weed', $event)"
+              >
+                除草
+              </button>
+              <button
+                class="rounded bg-orange-100 px-3 py-2 text-sm text-orange-700 transition hover:bg-orange-200"
+                @click="handleOp(friend.gid, 'bug', $event)"
+              >
+                除虫
+              </button>
+              <button
+                class="rounded bg-red-100 px-3 py-2 text-sm text-red-700 transition hover:bg-red-200"
+                @click="handleOp(friend.gid, 'bad', $event)"
+              >
+                捣乱
+              </button>
+              <button
+                class="rounded px-3 py-2 text-sm transition"
+                :class="blacklist.includes(Number(friend.gid))
+                  ? 'bg-gray-200 text-gray-600 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-gray-700/50 dark:text-gray-400 dark:hover:bg-gray-700'"
+                @click="handleToggleBlacklist(friend, $event)"
+              >
+                {{ blacklist.includes(Number(friend.gid)) ? '移出黑名单' : '加入黑名单' }}
+              </button>
+            </div>
           </div>
-          <div v-else-if="!friendLands[friend.gid] || friendLands[friend.gid]?.length === 0" class="py-4 text-center text-gray-500">
-            无土地数据
+
+          <div v-if="expandedFriends.has(friend.gid)" class="border-t bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900/50">
+            <div v-if="friendLandsLoading[friend.gid]" class="flex justify-center py-4">
+              <div class="i-svg-spinners-90-ring-with-bg text-2xl text-blue-500" />
+            </div>
+            <div v-else-if="!friendLands[friend.gid] || friendLands[friend.gid]?.length === 0" class="py-4 text-center text-gray-500">
+              无土地数据
+            </div>
+            <div v-else class="grid grid-cols-2 gap-2 lg:grid-cols-8 md:grid-cols-5 sm:grid-cols-4">
+              <LandCard
+                v-for="land in friendLands[friend.gid]"
+                :key="land.id"
+                :land="land"
+              />
+            </div>
           </div>
-          <div v-else class="grid grid-cols-2 gap-2 lg:grid-cols-8 md:grid-cols-5 sm:grid-cols-4">
-            <LandCard
-              v-for="land in friendLands[friend.gid]"
-              :key="land.id"
-              :land="land"
-            />
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div v-if="activeTab === 'logs'">
+      <div v-if="friendLogsLoading" class="flex justify-center py-12">
+        <div class="i-svg-spinners-90-ring-with-bg text-4xl text-blue-500" />
+      </div>
+
+      <div v-else-if="!currentAccountId" class="rounded-lg bg-white p-8 text-center text-gray-500 shadow dark:bg-gray-800">
+        请选择账号后查看访问日志
+      </div>
+
+      <div v-else-if="!status?.connection?.connected" class="flex flex-col items-center justify-center gap-4 rounded-lg bg-white p-12 text-center text-gray-500 shadow dark:bg-gray-800">
+        <div class="i-carbon-connection-signal-off text-4xl text-gray-400" />
+        <div>
+          <div class="text-lg text-gray-700 font-medium dark:text-gray-300">
+            账号未登录
+          </div>
+          <div class="mt-1 text-sm text-gray-400">
+            请先运行账号或检查网络连接
+          </div>
+        </div>
+      </div>
+
+      <div v-else-if="friendLogs.length === 0" class="rounded-lg bg-white p-8 text-center text-gray-500 shadow dark:bg-gray-800">
+        暂无访问日志
+      </div>
+
+      <div v-else class="space-y-4">
+        <div
+          v-for="(log, index) in friendLogs"
+          :key="index"
+          class="overflow-hidden rounded-lg bg-white shadow dark:bg-gray-800"
+        >
+          <div class="p-4">
+            <div class="flex justify-between items-center mb-2">
+              <div class="font-bold">{{ log.friendName }}</div>
+              <div class="text-sm text-gray-500">{{ formatLogTime(log.timestamp) }}</div>
+            </div>
+            <div class="text-sm">
+              <span class="text-gray-600 dark:text-gray-400">操作: </span>
+              <span class="text-green-500">{{ log.actions.join(' / ') }}</span>
+            </div>
           </div>
         </div>
       </div>

@@ -81,12 +81,12 @@ const AUTOMATION_SCHEMA = {
 const INTERVALS_SCHEMA = {
     type: 'object',
     properties: {
-        farm: { type: 'number', min: 1, max: 3600, default: 2 },
-        friend: { type: 'number', min: 1, max: 3600, default: 10 },
-        farmMin: { type: 'number', min: 1, max: 3600, default: 2 },
-        farmMax: { type: 'number', min: 1, max: 3600, default: 2 },
-        friendMin: { type: 'number', min: 1, max: 3600, default: 10 },
-        friendMax: { type: 'number', min: 1, max: 3600, default: 10 },
+        farm: { type: 'number', min: 1, max: 86400, default: 2 },
+        friend: { type: 'number', min: 1, max: 86400, default: 10 },
+        farmMin: { type: 'number', min: 1, max: 86400, default: 1 },
+        farmMax: { type: 'number', min: 1, max: 86400, default: 5 },
+        friendMin: { type: 'number', min: 1, max: 86400, default: 6000 },
+        friendMax: { type: 'number', min: 1, max: 86400, default: 86400 },
     },
     additionalProperties: false,
 };
@@ -124,6 +124,7 @@ const ACCOUNT_CONFIG_SCHEMA = {
         preferredSeedId: { type: 'number', min: 0, default: 0 },
         friendQuietHours: QUIET_HOURS_SCHEMA,
         friendBlacklist: { type: 'array', items: { type: 'number' }, default: [] },
+        noStealPlants: { type: 'array', items: { type: 'number' }, default: [] },
     },
     additionalProperties: false,
 };
